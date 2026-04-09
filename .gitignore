@@ -3,8 +3,10 @@
 data/
 state/
 node_modules/
+paperclip/
 *.spike
 Dockerfile.spike
 Dockerfile.ttyd-spike
 test-ttyd.sh
 entrypoint.sh
+.DS_Store
