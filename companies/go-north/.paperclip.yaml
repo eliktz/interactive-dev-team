@@ -1,4 +1,27 @@
-# TODO: Paperclip adapter configs for Go-North
-# adapters:
-#   trello: ...
-#   telegram: ...
+schema: paperclip/v1
+
+adapter_defaults:
+  adapter_type: claude_local
+  adapter_config:
+    dangerouslySkipPermissions: true
+    model: claude-sonnet-4-6
+
+agents:
+  product-manager:
+    adapter_config:
+      model: claude-sonnet-4-6
+  finance-officer:
+    adapter_config:
+      model: claude-haiku-4-5-20251001
+  frontend-dev:
+    adapter_config:
+      model: claude-sonnet-4-6
+  backend-dev:
+    adapter_config:
+      model: claude-sonnet-4-6
+  qa-lead:
+    adapter_config:
+      model: claude-sonnet-4-6
+  ux-designer:
+    adapter_config:
+      model: claude-sonnet-4-6
