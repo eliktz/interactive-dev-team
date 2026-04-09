@@ -115,7 +115,7 @@ if [[ -d "$PAPERCLIP_SOURCE" ]] && [[ -f "$PAPERCLIP_SOURCE/Dockerfile" ]]; then
   info "Paperclip source found at ${PAPERCLIP_SOURCE}"
 else
   info "Cloning Paperclip into ${PAPERCLIP_SOURCE} ..."
-  git clone https://github.com/anthropics/paperclip.git "$PAPERCLIP_SOURCE"
+  git clone https://github.com/paperclipai/paperclip.git "$PAPERCLIP_SOURCE"
   info "Clone complete"
 fi
 

@@ -7,7 +7,7 @@
 #
 # Paperclip source:
 #   Clone Paperclip into ./paperclip before starting:
-#     git clone https://github.com/anthropics/paperclip.git ./paperclip
+#     git clone https://github.com/paperclipai/paperclip.git ./paperclip
 #   Or set PAPERCLIP_SOURCE in .env to point to an existing checkout.
 #
 # Paperclip uses embedded PGlite — no separate Postgres service needed.
