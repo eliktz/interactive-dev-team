@@ -1,2 +1,80 @@
-# TODO: Docker Compose configuration for interactive-dev-team
-# Services: captain, ceo-gonorth, ux-gonorth, paperclip, ttyd
+# =============================================================================
+# docker-compose.yml — AI Agent War Room + Paperclip Control Plane
+#
+# Services:
+#   war-room  — 3 Claude Code agents in tmux + ttyd web terminal
+#   paperclip — Paperclip control plane (worker management + web UI)
+#
+# Paperclip source:
+#   Clone Paperclip into ./paperclip before starting:
+#     git clone https://github.com/anthropics/paperclip.git ./paperclip
+#   Or set PAPERCLIP_SOURCE in .env to point to an existing checkout.
+#
+# Paperclip uses embedded PGlite — no separate Postgres service needed.
+#
+# Usage:
+#   cp .env.example .env   # fill in secrets
+#   docker compose up --build
+# =============================================================================
+
+services:
+  war-room:
+    build: .
+    ports:
+      - "${TTYD_PORT:-7681}:7681"
+    environment:
+      # LLM Provider
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_USE_BEDROCK: ${CLAUDE_CODE_USE_BEDROCK:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-}
+      # Telegram
+      CAPTAIN_TELEGRAM_TOKEN: ${CAPTAIN_TELEGRAM_TOKEN}
+      CEO_GONORTH_TELEGRAM_TOKEN: ${CEO_GONORTH_TELEGRAM_TOKEN}
+      UX_GONORTH_TELEGRAM_TOKEN: ${UX_GONORTH_TELEGRAM_TOKEN}
+      GONORTH_GROUP_ID: ${GONORTH_GROUP_ID:-}
+      OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
+      # Models (optional overrides)
+      CAPTAIN_MODEL: ${CAPTAIN_MODEL:-sonnet}
+      CEO_MODEL: ${CEO_MODEL:-opus}
+      UX_MODEL: ${UX_MODEL:-sonnet}
+      # ttyd auth
+      TTYD_USERNAME: ${TTYD_USERNAME:-}
+      TTYD_PASSWORD: ${TTYD_PASSWORD:-}
+      # Paperclip connection (Docker network)
+      PAPERCLIP_URL: http://paperclip:3100
+    volumes:
+      - war-room-state:/home/claude/.claude
+    depends_on:
+      paperclip:
+        condition: service_healthy
+    restart: unless-stopped
+
+  paperclip:
+    build:
+      context: ${PAPERCLIP_SOURCE:-./paperclip}
+      dockerfile: Dockerfile
+    ports:
+      - "${PAPERCLIP_PORT:-3100}:3100"
+    environment:
+      HOST: "0.0.0.0"
+      PAPERCLIP_HOME: "/paperclip"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PAPERCLIP_DEPLOYMENT_MODE: "local_trusted"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
+    volumes:
+      - paperclip-data:/paperclip
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3100/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  war-room-state:
+  paperclip-data:
