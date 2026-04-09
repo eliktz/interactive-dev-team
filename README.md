@@ -205,6 +205,11 @@ interactive-dev-team/
   .env.example               # Environment variable template
 ```
 
+## Contributors
+
+- **Elik Koker** ([@eliktz](https://github.com/eliktz)) — Creator, architecture, War Room concept
+- **Ohad Levi** ([@ohadlevi22](https://github.com/ohadlevi22)) — Contributor
+
 ## License
 
 MIT
