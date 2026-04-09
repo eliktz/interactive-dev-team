@@ -207,7 +207,7 @@ interactive-dev-team/
 
 ## Contributors
 
-- **Elik Koker** ([@eliktz](https://github.com/eliktz)) — Creator, architecture, War Room concept
+- **Elik Katz** ([@eliktz](https://github.com/eliktz)) — Creator, architecture, War Room concept
 - **Ohad Levi** ([@ohadlevi22](https://github.com/ohadlevi22)) — Contributor
 
 ## License
