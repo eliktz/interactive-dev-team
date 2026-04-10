@@ -49,6 +49,8 @@ RUN mkdir -p /home/claude/.claude/channels/telegram/inbox \
 ENV CLAUDE_CODE_ENABLE_TELEMETRY=0
 ENV CI=1
 ENV TERM=xterm-256color
+ENV LANG=C.utf8
+ENV LC_ALL=C.utf8
 ENV PATH="/home/claude/.bun/bin:${PATH}"
 
 # --- working directory ---
