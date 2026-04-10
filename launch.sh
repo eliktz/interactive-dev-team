@@ -144,10 +144,18 @@ done
 # Arrange panes in tiled layout
 tmux select-layout -t "$SESSION" tiled
 
-# --- tmux settings: mouse, pane labels ---
+# --- tmux settings: mouse, clipboard, pane labels ---
 tmux set-option -g mouse on
 tmux set-option -g allow-rename off
 tmux set-option -g automatic-rename off
+tmux set-option -g set-clipboard on
+tmux set-option -g allow-passthrough on
+tmux set-option -g mode-keys vi
+# Ctrl+b m toggles mouse (off = free text selection, on = pane switching)
+tmux bind-key m set -g mouse \; display "Mouse: #{?mouse,ON,OFF}"
+# Vi copy mode: v to select, y to yank
+tmux bind-key -T copy-mode-vi v send-keys -X begin-selection
+tmux bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel
 
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
 tmux set-option -t "$SESSION" pane-border-status top
