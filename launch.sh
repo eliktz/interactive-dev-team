@@ -144,7 +144,11 @@ done
 # Arrange panes in tiled layout
 tmux select-layout -t "$SESSION" tiled
 
-# --- Label panes with agent names ---
+# --- tmux settings: mouse, pane labels ---
+tmux set-option -g mouse on
+tmux set-option -g allow-rename off
+tmux set-option -g automatic-rename off
+
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
 tmux set-option -t "$SESSION" pane-border-status top
 tmux set-option -t "$SESSION" pane-border-format " #{pane_title} "
