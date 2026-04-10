@@ -35,6 +35,26 @@ echo "[war-room] Claude Code version: $(claude --version)"
 echo "[war-room] Bun version: $(bun --version)"
 echo "[war-room] Running as: $(whoami) (uid=$(id -u))"
 
+# --- Pre-accept API key and permissions dialogs ---
+# Claude Code v2.1.98+ shows interactive prompts for API key confirmation and
+# dangerously-skip-permissions acceptance. Pre-populate .claude.json to skip them.
+CLAUDE_JSON="$HOME/.claude.json"
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  KEY_SUFFIX="${ANTHROPIC_API_KEY: -20}"
+  if [ -f "$CLAUDE_JSON" ]; then
+    # Add customApiKeyResponses if not already present
+    if ! grep -q "customApiKeyResponses" "$CLAUDE_JSON" 2>/dev/null; then
+      TMP_JSON=$(mktemp)
+      node -e "
+        const d = JSON.parse(require('fs').readFileSync('$CLAUDE_JSON','utf8'));
+        d.customApiKeyResponses = { approved: ['$KEY_SUFFIX'], rejected: [] };
+        require('fs').writeFileSync('$TMP_JSON', JSON.stringify(d, null, 2));
+      " && mv "$TMP_JSON" "$CLAUDE_JSON"
+      echo "[war-room] Pre-accepted API key in .claude.json"
+    fi
+  fi
+fi
+
 # --- Install Telegram plugin on first run ---
 if [ ! -d "$HOME/.claude/plugins/cache" ] || [ -z "$(ls -A "$HOME/.claude/plugins/cache" 2>/dev/null)" ]; then
   echo "[war-room] Installing Telegram plugin (first run, ~20s)..."

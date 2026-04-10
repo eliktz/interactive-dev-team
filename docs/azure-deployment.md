@@ -1,17 +1,17 @@
-# GCP Deployment Guide
+# Azure Deployment Guide
 
-This guide walks you through deploying Interactive Dev Team on a Google Cloud Compute
-Engine (GCE) virtual machine. By the end, you will have the war room and Paperclip
-running on a cloud VM accessible from anywhere.
+This guide walks you through deploying Interactive Dev Team on an Azure Virtual
+Machine. By the end, you will have the war room and Paperclip running on a cloud
+VM accessible from anywhere.
 
 ## Cost Estimate
 
 | Resource | Spec | Monthly Cost (approx.) |
 |----------|------|----------------------|
-| GCE VM | e2-medium (2 vCPU, 4 GB RAM) | ~$25-30 |
-| Boot disk | 20 GB SSD | ~$3 |
-| Persistent disk (optional) | 20 GB SSD | ~$3 |
-| Static IP | 1 external IP | ~$3-5 |
+| Azure VM | Standard_B2s (2 vCPU, 4 GB RAM) | ~$30 |
+| OS disk | 30 GB Premium SSD | ~$5 |
+| Managed data disk (optional) | 20 GB Premium SSD | ~$5 |
+| Static public IP | 1 Standard SKU IP | ~$3-4 |
 | Network egress | Minimal (mostly API calls) | ~$1-2 |
 | **Total** | | **~$35-45/month** |
 
@@ -19,48 +19,61 @@ Note: This does not include Anthropic API costs, which vary based on usage.
 
 ## Prerequisites
 
-- A Google Cloud account with billing enabled
-- `gcloud` CLI installed and authenticated (`gcloud auth login`)
-- A project selected (`gcloud config set project YOUR_PROJECT`)
+- An Azure account with an active subscription
+- `az` CLI installed and authenticated (`az login`)
+- A subscription selected (`az account set --subscription YOUR_SUBSCRIPTION`)
 
-## Step 1: Create the VM
+## Step 1: Create a Resource Group
 
 ```bash
-gcloud compute instances create interactive-dev-team \
-  --zone=us-central1-a \
-  --machine-type=e2-medium \
-  --image-family=debian-12 \
-  --image-project=debian-cloud \
-  --boot-disk-size=20GB \
-  --boot-disk-type=pd-ssd \
-  --tags=war-room
+az group create --name interactive-dev-team-rg --location eastus
 ```
 
-## Step 2: Open Firewall Ports
+## Step 2: Create the VM
+
+```bash
+az vm create \
+  --resource-group interactive-dev-team-rg \
+  --name interactive-dev-team \
+  --image Ubuntu2204 \
+  --size Standard_B2s \
+  --admin-username azureuser \
+  --generate-ssh-keys \
+  --os-disk-size-gb 30 \
+  --storage-sku Premium_LRS \
+  --public-ip-sku Standard
+```
+
+## Step 3: Open Firewall Ports
 
 Allow traffic to ttyd (7681) and Paperclip (3100):
 
 ```bash
-gcloud compute firewall-rules create allow-war-room \
-  --direction=INGRESS \
-  --action=ALLOW \
-  --rules=tcp:7681,tcp:3100 \
-  --target-tags=war-room \
-  --source-ranges=0.0.0.0/0 \
-  --description="Allow ttyd and Paperclip web UI"
+az vm open-port \
+  --resource-group interactive-dev-team-rg \
+  --name interactive-dev-team \
+  --port 7681 \
+  --priority 1001
+
+az vm open-port \
+  --resource-group interactive-dev-team-rg \
+  --name interactive-dev-team \
+  --port 3100 \
+  --priority 1002
 ```
 
-> **Security note:** The `0.0.0.0/0` source range allows access from anywhere. For
-> production use, restrict this to your IP address or VPN range. You should also set
+> **Security note:** The default NSG rules created by `az vm open-port` allow
+> access from anywhere (`*`). For production use, restrict the source IP by adding
+> `--source-address-prefixes YOUR_IP/32` to each command. You should also set
 > `TTYD_USERNAME` and `TTYD_PASSWORD` in `.env` to enable basic auth on the terminal.
 
-## Step 3: SSH into the VM
+## Step 4: SSH into the VM
 
 ```bash
-gcloud compute ssh interactive-dev-team --zone=us-central1-a
+ssh azureuser@$(az vm show -g interactive-dev-team-rg -n interactive-dev-team --show-details --query publicIps -o tsv)
 ```
 
-## Step 4: Install Docker
+## Step 5: Install Docker
 
 Run the following on the VM:
 
@@ -79,7 +92,7 @@ docker --version
 docker compose version
 ```
 
-## Step 5: Clone the Repo and Configure
+## Step 6: Clone the Repo and Configure
 
 ```bash
 # Clone the project
@@ -107,7 +120,7 @@ For a cloud deployment, also set ttyd credentials:
 - `TTYD_USERNAME=admin`
 - `TTYD_PASSWORD=<a-strong-password>`
 
-## Step 6: Run Setup
+## Step 7: Run Setup
 
 ```bash
 bash scripts/setup.sh
@@ -123,7 +136,7 @@ This will:
 
 When prompted, choose whether to start the full stack now or do it manually.
 
-## Step 7: Start the Full Stack
+## Step 8: Start the Full Stack
 
 If you did not start during setup:
 
@@ -140,14 +153,12 @@ docker compose ps
 You should see both `war-room` and `paperclip` with status `Up` (and `healthy` for
 paperclip).
 
-## Step 8: Access Your War Room
+## Step 9: Access Your War Room
 
 Get your VM's external IP:
 
 ```bash
-gcloud compute instances describe interactive-dev-team \
-  --zone=us-central1-a \
-  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+az vm show -g interactive-dev-team-rg -n interactive-dev-team --show-details --query publicIps -o tsv
 ```
 
 Then open in your browser:
@@ -190,16 +201,22 @@ paperclip.example.com {
 
 Replace `warroom.example.com` and `paperclip.example.com` with your actual domains.
 
-### Open HTTPS Port and Restart
+### Open HTTPS Ports and Restart
 
 ```bash
-# Open port 443 (HTTPS) and 80 (for ACME challenge)
-gcloud compute firewall-rules create allow-https \
-  --direction=INGRESS \
-  --action=ALLOW \
-  --rules=tcp:80,tcp:443 \
-  --target-tags=war-room \
-  --source-ranges=0.0.0.0/0
+# Open port 80 (for ACME challenge)
+az vm open-port \
+  --resource-group interactive-dev-team-rg \
+  --name interactive-dev-team \
+  --port 80 \
+  --priority 1003
+
+# Open port 443 (HTTPS)
+az vm open-port \
+  --resource-group interactive-dev-team-rg \
+  --name interactive-dev-team \
+  --port 443 \
+  --priority 1004
 
 # Restart Caddy
 sudo systemctl restart caddy
@@ -212,39 +229,41 @@ If using HTTPS, update `.env`:
 PAPERCLIP_PUBLIC_URL=https://paperclip.example.com
 ```
 
-## Optional: Persistent Disk
+## Optional: Managed Data Disk
 
-By default, Docker volumes live on the boot disk. For data durability, attach a
-separate persistent disk:
+By default, Docker volumes live on the OS disk. For data durability, attach a
+separate managed disk:
 
 ```bash
-# Create a persistent disk
-gcloud compute disks create war-room-data \
-  --zone=us-central1-a \
-  --size=20GB \
-  --type=pd-ssd
+# Create a managed disk
+az disk create \
+  --resource-group interactive-dev-team-rg \
+  --name war-room-data \
+  --size-gb 20 \
+  --sku Premium_LRS
 
 # Attach to VM
-gcloud compute instances attach-disk interactive-dev-team \
-  --zone=us-central1-a \
-  --disk=war-room-data
+az vm disk attach \
+  --resource-group interactive-dev-team-rg \
+  --vm-name interactive-dev-team \
+  --name war-room-data
 
 # SSH in and format/mount
-gcloud compute ssh interactive-dev-team --zone=us-central1-a
+ssh azureuser@$(az vm show -g interactive-dev-team-rg -n interactive-dev-team --show-details --query publicIps -o tsv)
 
-sudo mkfs.ext4 /dev/sdb
+sudo mkfs.ext4 /dev/sdc
 sudo mkdir -p /mnt/war-room-data
-sudo mount /dev/sdb /mnt/war-room-data
+sudo mount /dev/sdc /mnt/war-room-data
 
 # Add to fstab for auto-mount on reboot
-echo '/dev/sdb /mnt/war-room-data ext4 defaults 0 2' | sudo tee -a /etc/fstab
+echo '/dev/sdc /mnt/war-room-data ext4 defaults 0 2' | sudo tee -a /etc/fstab
 ```
 
 Then update `docker-compose.yml` to use bind mounts instead of named volumes:
 
 ```yaml
 volumes:
-  # Replace named volumes with bind mounts to persistent disk
+  # Replace named volumes with bind mounts to managed disk
   war-room-state:
     driver: local
     driver_opts:
@@ -308,21 +327,14 @@ docker compose down -v  # Warning: removes all volumes/state
 
 ## Cleanup
 
-To remove all resources created by this guide:
+Delete the entire resource group to remove all resources at once:
 
 ```bash
-# Delete the VM
-gcloud compute instances delete interactive-dev-team --zone=us-central1-a --quiet
-
-# Delete the firewall rule
-gcloud compute firewall-rules delete allow-war-room --quiet
-
-# Delete persistent disk (if created)
-gcloud compute disks delete war-room-data --zone=us-central1-a --quiet
-
-# Delete HTTPS firewall rule (if created)
-gcloud compute firewall-rules delete allow-https --quiet
+az group delete --name interactive-dev-team-rg --yes --no-wait
 ```
+
+This removes the VM, disks, network security group, public IP, virtual network,
+and all other resources created within the resource group.
 
 ## Troubleshooting
 
@@ -332,4 +344,6 @@ gcloud compute firewall-rules delete allow-https --quiet
 | Telegram bots not responding | Token not set or invalid | Verify tokens in `.env`, check `docker compose logs war-room` for warnings |
 | Paperclip UI not loading | Container not healthy yet | Wait 30-60s after startup; check `docker compose ps` for health status |
 | "Paperclip did not become healthy" during setup | Build failure or port conflict | Check `docker compose logs paperclip`; ensure port 3100 is free |
-| Cannot reach ports from browser | Firewall rules not applied | Verify `gcloud compute firewall-rules list` includes your rules |
+| Cannot reach ports from browser | NSG rules not applied | Verify with `az network nsg rule list -g interactive-dev-team-rg --nsg-name interactive-dev-teamNSG -o table` |
+| SSH connection refused | VM not running or IP changed | Check VM status with `az vm show -g interactive-dev-team-rg -n interactive-dev-team --show-details -o table` |
+| Disk not visible after attach | Device path differs | Run `lsblk` to find the correct device name (may be `/dev/sdc` or `/dev/sdd`) |

@@ -144,10 +144,13 @@ You can use Go-North as-is or replace it with your own company. See
 
 See [docs/customization.md](docs/customization.md).
 
-## GCP Deployment
+## Cloud Deployment
 
-Deploy to a Google Cloud VM for ~$35-45/month. Step-by-step guide:
-[docs/gcp-deployment.md](docs/gcp-deployment.md).
+Deploy to any major cloud provider on a single VM for ~$30-45/month:
+
+- **Google Cloud (GCP):** [docs/gcp-deployment.md](docs/gcp-deployment.md) — GCE e2-medium VM
+- **Microsoft Azure:** [docs/azure-deployment.md](docs/azure-deployment.md) — Standard_B2s VM
+- **Amazon Web Services (AWS):** [docs/aws-deployment.md](docs/aws-deployment.md) — EC2 t3.medium (includes Bedrock setup)
 
 ## Telegram Setup
 
@@ -196,6 +199,8 @@ interactive-dev-team/
     setup.sh                 # One-time setup (clone Paperclip, register company)
   docs/
     architecture.md          # Detailed architecture
+    aws-deployment.md        # AWS deployment guide
+    azure-deployment.md      # Azure deployment guide
     customization.md         # How to customize
     gcp-deployment.md        # GCP deployment guide
     telegram-setup.md        # Telegram bot setup
