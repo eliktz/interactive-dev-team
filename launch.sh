@@ -88,6 +88,30 @@ for agent_def in "${AGENTS[@]}"; do
     chmod 600 "$state_dir/.env"
     echo "[war-room] [$name] Telegram token written to $state_dir/.env"
   fi
+
+  # Create access.json if missing (whitelists the group and operator for Telegram)
+  if [ ! -f "$state_dir/access.json" ] && [ -n "${GONORTH_GROUP_ID:-}" ]; then
+    # Captain sees all messages; other agents require @mention
+    local require_mention="true"
+    if [ "$name" = "captain" ]; then
+      require_mention="false"
+    fi
+
+    cat > "$state_dir/access.json" << ACCESSEOF
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["${OPERATOR_TELEGRAM_ID:-}"],
+  "groups": {
+    "-${GONORTH_GROUP_ID}": {
+      "requireMention": ${require_mention},
+      "allowFrom": []
+    }
+  },
+  "pending": {}
+}
+ACCESSEOF
+    echo "[war-room] [$name] access.json created (requireMention: $require_mention)"
+  fi
 done
 
 # --- Build per-agent Claude command ---
