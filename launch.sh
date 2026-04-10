@@ -144,6 +144,16 @@ done
 # Arrange panes in tiled layout
 tmux select-layout -t "$SESSION" tiled
 
+# --- Label panes with agent names ---
+PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
+tmux set-option -t "$SESSION" pane-border-status top
+tmux set-option -t "$SESSION" pane-border-format " #{pane_title} "
+tmux set-option -t "$SESSION" pane-border-style fg=white
+tmux set-option -t "$SESSION" pane-active-border-style fg=green
+for i in "${!PANE_LABELS[@]}"; do
+  tmux select-pane -t "$SESSION:0.$i" -T "${PANE_LABELS[$i]}"
+done
+
 echo "[war-room] tmux session '$SESSION' created with ${#AGENTS[@]} panes"
 
 # --- Start ttyd ---
