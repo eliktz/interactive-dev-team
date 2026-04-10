@@ -57,12 +57,29 @@ cp .env.example .env
 # 4. Run the setup script (clones Paperclip, registers company & agents)
 bash scripts/setup.sh
 
-# 5. Start the full stack
-docker compose up -d
+# 5. Build and start the full stack
+docker compose up -d --build
 ```
 
 Open [http://localhost:7681](http://localhost:7681) to see the war room (tmux in your browser).
 Open [http://localhost:3100](http://localhost:3100) to access the Paperclip management UI.
+
+> **Important:** Telegram channels require claude.ai authentication (Pro/Max/Team plan).
+> After first startup, run `docker exec -it <war-room-container> claude` inside the
+> container and type `/login` to authenticate. This is a one-time step — auth tokens
+> persist across restarts via the Docker volume.
+
+### Updating
+
+Always rebuild after pulling new code:
+
+```bash
+git pull
+docker compose up -d --build   # rebuilds the image with latest changes
+```
+
+Do **not** use `docker compose restart` — it reuses the old image and will not pick up
+fixes to the Dockerfile or launch.sh.
 
 ## What You Get
 

@@ -286,6 +286,10 @@ docker compose logs -f paperclip
 docker compose restart
 ```
 
+> **Note:** `docker compose restart` reuses the existing image. If you have pulled
+> new code, use `docker compose up -d --build` instead to rebuild with the latest
+> Dockerfile and launch.sh changes.
+
 ### Update
 
 ```bash
