@@ -23,8 +23,11 @@ services:
     ports:
       - "${TTYD_PORT:-7681}:7681"
     environment:
-      # LLM Provider
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # LLM Provider — claude.ai OAuth is used for Telegram channels.
+      # Do NOT set ANTHROPIC_API_KEY here; it conflicts with the OAuth token.
+      # If you need API key mode (no claude.ai subscription), uncomment:
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Bedrock (alternative to claude.ai OAuth)
       CLAUDE_CODE_USE_BEDROCK: ${CLAUDE_CODE_USE_BEDROCK:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}

@@ -20,9 +20,12 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # --- Validate required env vars ---
-if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${CLAUDE_CODE_USE_BEDROCK:-}" ]; then
-  echo "[war-room] ERROR: ANTHROPIC_API_KEY or CLAUDE_CODE_USE_BEDROCK must be set"
-  exit 1
+# Auth comes from claude.ai OAuth (/login) stored in the war-room-state volume.
+# ANTHROPIC_API_KEY is intentionally NOT required — it conflicts with OAuth tokens.
+# Bedrock is an alternative provider that doesn't conflict.
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  echo "[war-room] WARNING: ANTHROPIC_API_KEY is set — this conflicts with claude.ai OAuth."
+  echo "[war-room]          Unset it in docker-compose.yml to use claude.ai subscription."
 fi
 
 for token_var in CAPTAIN_TELEGRAM_TOKEN CEO_GONORTH_TELEGRAM_TOKEN UX_GONORTH_TELEGRAM_TOKEN; do
@@ -35,14 +38,11 @@ echo "[war-room] Claude Code version: $(claude --version)"
 echo "[war-room] Bun version: $(bun --version)"
 echo "[war-room] Running as: $(whoami) (uid=$(id -u))"
 
-# --- Pre-accept API key and permissions dialogs ---
-# Claude Code v2.1.98+ shows interactive prompts for API key confirmation and
-# dangerously-skip-permissions acceptance. Pre-populate .claude.json to skip them.
+# --- Pre-accept API key dialog (only if API key is set) ---
 CLAUDE_JSON="$HOME/.claude.json"
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   KEY_SUFFIX="${ANTHROPIC_API_KEY: -20}"
   if [ -f "$CLAUDE_JSON" ]; then
-    # Add customApiKeyResponses if not already present
     if ! grep -q "customApiKeyResponses" "$CLAUDE_JSON" 2>/dev/null; then
       TMP_JSON=$(mktemp)
       node -e "
