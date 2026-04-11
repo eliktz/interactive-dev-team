@@ -164,12 +164,10 @@ AGENTEOF
   chmod +x "$script"
 done
 
-# Create tmux session — set remain-on-exit GLOBALLY before creating panes
-# so panes survive if agents crash
-tmux set-option -g remain-on-exit on 2>/dev/null || true
-
-# First agent gets the initial window
+# Create tmux session with first agent
 tmux new-session -d -s "$SESSION" -x 200 -y 50 bash /tmp/agent-captain.sh
+# Set remain-on-exit so panes survive agent crashes
+tmux set-option -t "$SESSION" remain-on-exit on
 
 # Remaining agents get split panes
 tmux split-window -t "$SESSION" bash /tmp/agent-ceo-gonorth.sh
@@ -178,8 +176,10 @@ tmux select-layout -t "$SESSION" tiled
 
 # Label panes (use pane IDs to avoid base-index issues)
 PANE_IDS=($(tmux list-panes -t "$SESSION" -F '#{pane_id}'))
-for i in "${!PANE_LABELS[@]}"; do
-  tmux select-pane -t "${PANE_IDS[$i]}" -T "${PANE_LABELS[$i]}"
+for i in 0 1 2; do
+  if [ -n "${PANE_IDS[$i]:-}" ] && [ -n "${PANE_LABELS[$i]:-}" ]; then
+    tmux select-pane -t "${PANE_IDS[$i]}" -T "${PANE_LABELS[$i]}"
+  fi
 done
 
 echo "[war-room] tmux session '$SESSION' created with ${#AGENTS[@]} panes"
