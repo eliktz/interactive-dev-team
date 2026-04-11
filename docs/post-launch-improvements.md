@@ -115,3 +115,24 @@ Auth tokens, Telegram state, and Paperclip data are stored in Docker volumes:
 
 These persist across `docker compose up -d --build` but are deleted by
 `docker compose down -v`. Never use `-v` unless you intend a full reset.
+
+## Paperclip Agent Personality Fix
+
+- **Problem**: All 6 Paperclip agents were registered with identical generic payloads
+  (name, role, model only). The unique `AGENTS.md` personality files existed in the repo
+  but were never passed to Paperclip during setup.
+- **Root cause**: `setup.sh` hardcoded bare `AGENT_DEFS` without reading `AGENTS.md`
+  content. Paperclip's `instructionsFilePath` adapter config was never set.
+  `.paperclip.yaml` was declared but never consumed.
+- **Fix (Option A — Volume-mount + instructionsFilePath)**:
+  - `docker-compose.yml`: Added bind-mount `./companies:/paperclip/companies:ro` to
+    make `AGENTS.md` files accessible inside the Paperclip container
+  - `setup.sh`: Replaced static `AGENT_DEFS` with `build_agent_body()` function that
+    generates JSON payloads including `instructionsFilePath`, `capabilities`, and
+    `reportsTo` per agent. PM is created first, its ID passed to subsequent agents
+  - `.paperclip.yaml`: Added `instructionsFilePath` and `reportsTo` per agent
+- **Deployment mode**: Changed from `local_trusted` (crashes with Docker's `0.0.0.0`
+  binding) to `authenticated` mode with `BETTER_AUTH_SECRET` env var
+- **Bootstrap**: First user signed up via `/api/auth/sign-up/email` must be promoted
+  to instance admin via the embedded PGlite database (user: `paperclip`, password:
+  `paperclip`, database: `paperclip`, port: 54329) before they can create companies
