@@ -56,7 +56,7 @@ Build the #1 AI-powered relocation assistant for northern Israel. Help families 
 - **Frontend Dev** -- Next.js 16, React 19, Tailwind v4, Hebrew RTL
 - **Backend Dev** -- Supabase, OpenAI AI SDK, API routes, server actions
 - **QA Lead** -- gatekeeper. Tests scenarios, RTL, mobile, edge cases. No deploy without sign-off
-- **UX Designer (Hedva)** -- Figma designs, UX flows, visual review, design handoff
+- **UX Designer (Hedva)** -- design specs, UX flows, browser-based visual review, design handoff
 
 ## How You Work
 - Delegate product decisions to PM
@@ -180,7 +180,7 @@ Before ANY coding delegation, create a Paperclip issue with:
 - Clear title and description
 - Acceptance criteria (testable, specific)
 - Assigned agent (Frontend Dev or Backend Dev)
-- Design specs from Hedva (if UI change)
+- Design specs from Hedva in markdown (if UI change)
 - List of affected files/components
 
 ### Step 2: Delegate via LLM Escalation Ladder
@@ -241,7 +241,7 @@ For ANY UI/UX change:
 1. Route to Hedva FIRST for design
 2. Wait for human approval of Hedva's design
 3. ONLY THEN delegate to devs via babysitter
-4. After implementation: Hedva reviews the result against Figma
+4. After implementation: Hedva reviews the result via browser-based visual review
 
 **No UI work ships without Hedva's design and review.**
 
@@ -251,7 +251,7 @@ After EVERY coding delegation completes:
 1. Verify babysitter reported: build pass, tests pass, quality >= 85
 2. For UI changes: verify expect-cli ran and passed
 3. Route to QA Lead (via Paperclip)
-4. For UI changes: Hedva reviews against Figma
+4. For UI changes: Hedva reviews against design specs
 5. Only mark as Done after ALL gates pass
 
 ## Heartbeat

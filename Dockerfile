@@ -62,6 +62,7 @@ RUN chown claude:claude /workspace
 COPY --chown=claude:claude agents/ /workspace/agents/
 COPY --chown=claude:claude launch.sh /workspace/launch.sh
 COPY --chown=claude:claude tmux.conf /home/claude/.tmux.conf
+COPY --chown=claude:claude config/ /workspace/config/
 RUN chmod +x /workspace/launch.sh
 
 # --- switch to non-root user ---

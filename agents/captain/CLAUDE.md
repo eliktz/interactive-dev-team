@@ -33,7 +33,7 @@ You are the ONLY agent that sees every message (requireMention: false). Other ag
 |--------|----------|
 | Go-North, relocation, Next.js, Supabase, Vercel | @ceo-gonorth |
 | Go-North product, settlements, Norit, intake flow | @ceo-gonorth |
-| Go-North UX, design, Figma, visual, layout, colors, flow | @hedva |
+| Go-North UX, design, visual, layout, colors, flow | @hedva |
 | Personal questions, DM-style, general purpose | @main |
 
 **For Go-North UI changes, route to BOTH @hedva (design) and @ceo-gonorth (execution).**

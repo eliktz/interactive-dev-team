@@ -55,6 +55,47 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   fi
 fi
 
+# --- Configure MCP servers ---
+SETTINGS_JSON="$HOME/.claude/settings.json"
+mkdir -p "$HOME/.claude"
+
+# Build MCP config dynamically (env vars resolved at runtime)
+MCP_CONFIG=$(node -e "
+const config = { mcpServers: {} };
+
+// Playwright browser (always available)
+config.mcpServers.playwright = { url: 'http://playwright:8931/mcp' };
+
+// Bitbucket Cloud (if credentials provided)
+if (process.env.BITBUCKET_USERNAME && process.env.BITBUCKET_PASSWORD) {
+  config.mcpServers.bitbucket = {
+    command: 'npx',
+    args: ['-y', 'bitbucket-mcp@latest'],
+    env: {
+      BITBUCKET_URL: process.env.BITBUCKET_URL || 'https://api.bitbucket.org/2.0',
+      BITBUCKET_USERNAME: process.env.BITBUCKET_USERNAME,
+      BITBUCKET_PASSWORD: process.env.BITBUCKET_PASSWORD
+    }
+  };
+}
+
+console.log(JSON.stringify(config, null, 2));
+")
+
+if [ -f "$SETTINGS_JSON" ]; then
+  TMP_SETTINGS=$(mktemp)
+  node -e "
+    const existing = JSON.parse(require('fs').readFileSync('$SETTINGS_JSON', 'utf8'));
+    const mcp = JSON.parse(process.argv[1]);
+    existing.mcpServers = { ...(existing.mcpServers || {}), ...(mcp.mcpServers || {}) };
+    require('fs').writeFileSync('$TMP_SETTINGS', JSON.stringify(existing, null, 2));
+  " "$MCP_CONFIG" && mv "$TMP_SETTINGS" "$SETTINGS_JSON"
+  echo "[war-room] MCP servers merged into settings.json"
+else
+  echo "$MCP_CONFIG" > "$SETTINGS_JSON"
+  echo "[war-room] MCP settings.json created"
+fi
+
 # --- Install Telegram plugin on first run ---
 if [ ! -d "$HOME/.claude/plugins/cache" ] || [ -z "$(ls -A "$HOME/.claude/plugins/cache" 2>/dev/null)" ]; then
   echo "[war-room] Installing Telegram plugin (first run, ~20s)..."

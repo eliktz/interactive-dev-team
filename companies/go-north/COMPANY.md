@@ -34,7 +34,7 @@ Every family considering a move to northern Israel should have a personal, AI-po
 - **Frontend**: Next.js, React, Tailwind CSS
 - **Backend**: Supabase (Postgres, Auth, Storage), OpenAI AI SDK
 - **Infrastructure**: Vercel (hosting), Supabase (managed backend)
-- **Design**: Figma
+- **Design**: Browser-based visual review (Playwright MCP), markdown specs
 
 ## Agent Roster
 
@@ -45,4 +45,4 @@ Every family considering a move to northern Israel should have a personal, AI-po
 | frontend-dev | Frontend Developer | Next.js, React, Tailwind, RTL |
 | backend-dev | Backend Developer | Supabase, AI SDK, APIs |
 | qa-lead | QA Lead | Testing, Playwright, release gates |
-| ux-designer | UX Designer | Figma, UX flows, design handoff |
+| ux-designer | UX Designer | Visual review, UX flows, design handoff |
