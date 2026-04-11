@@ -152,27 +152,24 @@ build_agent_cmd() {
 # --- Create tmux session with 3 agent panes ---
 echo "[war-room] Creating tmux session '$SESSION'..."
 
-# First agent gets the initial window
-IFS=':' read -r name token_var model <<< "${AGENTS[0]}"
-cmd=$(build_agent_cmd "$name" "$model")
-tmux new-session -d -s "$SESSION" -x 200 -y 50 bash -c "$cmd"
-tmux rename-window -t "$SESSION" "$name"
+# Create session with a persistent bash shell (not the agent command directly)
+# This prevents panes from dying if the agent exits
+tmux new-session -d -s "$SESSION" -x 200 -y 50 bash
+tmux set-option -t "$SESSION" remain-on-exit on
 
-# Remaining agents get split panes
-for i in 1 2; do
-  IFS=':' read -r name token_var model <<< "${AGENTS[$i]}"
-  cmd=$(build_agent_cmd "$name" "$model")
-  tmux split-window -t "$SESSION" bash -c "$cmd"
-done
-
-# Arrange panes in tiled layout
+# Create split panes (persistent bash shells)
+tmux split-window -t "$SESSION" bash
+tmux split-window -t "$SESSION" bash
 tmux select-layout -t "$SESSION" tiled
 
-# --- Label panes with agent names ---
+# Label panes and send agent commands into each
 # tmux settings (mouse, clipboard, theme) are loaded from ~/.tmux.conf
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
 for i in "${!PANE_LABELS[@]}"; do
+  IFS=':' read -r name token_var model <<< "${AGENTS[$i]}"
+  cmd=$(build_agent_cmd "$name" "$model")
   tmux select-pane -t "$SESSION:0.$i" -T "${PANE_LABELS[$i]}"
+  tmux send-keys -t "$SESSION:0.$i" "$cmd" Enter
 done
 
 echo "[war-room] tmux session '$SESSION' created with ${#AGENTS[@]} panes"
