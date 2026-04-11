@@ -168,24 +168,9 @@ done
 # Arrange panes in tiled layout
 tmux select-layout -t "$SESSION" tiled
 
-# --- tmux settings: mouse, clipboard, pane labels ---
-tmux set-option -g mouse on
-tmux set-option -g allow-rename off
-tmux set-option -g automatic-rename off
-tmux set-option -g set-clipboard on
-tmux set-option -g allow-passthrough on
-tmux set-option -g mode-keys vi
-# Ctrl+b m toggles mouse (off = free text selection, on = pane switching)
-tmux bind-key m set -g mouse \; display "Mouse: #{?mouse,ON,OFF}"
-# Vi copy mode: v to select, y to yank
-tmux bind-key -T copy-mode-vi v send-keys -X begin-selection
-tmux bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel
-
+# --- Label panes with agent names ---
+# tmux settings (mouse, clipboard, theme) are loaded from ~/.tmux.conf
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
-tmux set-option -t "$SESSION" pane-border-status top
-tmux set-option -t "$SESSION" pane-border-format " #{pane_title} "
-tmux set-option -t "$SESSION" pane-border-style fg=white
-tmux set-option -t "$SESSION" pane-active-border-style fg=green
 for i in "${!PANE_LABELS[@]}"; do
   tmux select-pane -t "$SESSION:0.$i" -T "${PANE_LABELS[$i]}"
 done
@@ -194,6 +179,14 @@ echo "[war-room] tmux session '$SESSION' created with ${#AGENTS[@]} panes"
 
 # --- Start ttyd ---
 TTYD_ARGS=(--writable --port 7681)
+
+# Catppuccin Mocha theme for ttyd (matches .tmux.conf)
+TTYD_ARGS+=(
+  -t 'theme={"background":"#1e1e2e","foreground":"#cdd6f4","cursor":"#f5e0dc","cursorAccent":"#1e1e2e","selectionBackground":"#45475a","selectionForeground":"#cdd6f4","black":"#45475a","red":"#f38ba8","green":"#a6e3a1","yellow":"#f9e2af","blue":"#89b4fa","magenta":"#cba6f7","cyan":"#89dceb","white":"#bac2de","brightBlack":"#585b70","brightRed":"#f38ba8","brightGreen":"#a6e3a1","brightYellow":"#f9e2af","brightBlue":"#89b4fa","brightMagenta":"#cba6f7","brightCyan":"#89dceb","brightWhite":"#a6adc8"}'
+  -t "fontFamily='JetBrains Mono','Fira Code','Cascadia Code','Menlo','Consolas',monospace"
+  -t 'fontSize=14'
+  -t 'disableLeaveAlert=true'
+)
 
 if [ -n "${TTYD_USERNAME:-}" ] && [ -n "${TTYD_PASSWORD:-}" ]; then
   TTYD_ARGS+=(-c "${TTYD_USERNAME}:${TTYD_PASSWORD}")
