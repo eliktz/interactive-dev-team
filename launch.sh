@@ -114,67 +114,32 @@ ACCESSEOF
   fi
 done
 
-# --- Build per-agent Claude command ---
-build_agent_cmd() {
-  local name="$1"
-  local model="$2"
-  local state_dir="$HOME/.claude/channels/telegram-${name}"
-  local prompt_file="/workspace/agents/${name}/CLAUDE.md"
-  local system_prompt=""
-
-  if [ -f "$prompt_file" ]; then
-    system_prompt=$(cat "$prompt_file")
-  fi
-
-  # Compose the command with TELEGRAM_STATE_DIR set inline
-  local cmd="TELEGRAM_STATE_DIR=${state_dir} "
-  cmd+="claude "
-  cmd+="--dangerously-skip-permissions "
-  cmd+="--model ${model} "
-  cmd+="--channels plugin:telegram@claude-plugins-official "
-  cmd+="--input-format stream-json "
-  cmd+="--output-format stream-json "
-  cmd+="--verbose"
-
-  if [ -n "$system_prompt" ]; then
-    cmd+=" -p '${system_prompt}'"
-  fi
-
-  # Wrap with FIFO stdin to keep the process alive
-  local fifo="/tmp/claude-stdin-${name}"
-  local full_cmd="mkfifo ${fifo} 2>/dev/null || true; "
-  full_cmd+="echo '[war-room] [${name}] Starting (model=${model})...'; "
-  full_cmd+="${cmd} < <(cat ${fifo} & wait)"
-
-  echo "$full_cmd"
-}
-
 # --- Create tmux session with 3 agent panes ---
 echo "[war-room] Creating tmux session '$SESSION'..."
 
-# Write per-agent launcher scripts (avoids send-keys multi-line issues)
+# Each agent runs from its own directory so Claude Code auto-discovers CLAUDE.md.
+# No --input/output-format stream-json (shows normal REPL UI).
+# No -p flag (CLAUDE.md is picked up automatically).
+# Channels plugin keeps the process alive as a long-running listener.
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
-for i in "${!AGENTS[@]}"; do
-  IFS=':' read -r name token_var model <<< "${AGENTS[$i]}"
-  script="/tmp/agent-${name}.sh"
-  cat > "$script" << AGENTEOF
-#!/usr/bin/env bash
-$(build_agent_cmd "$name" "$model")
-AGENTEOF
-  chmod +x "$script"
-done
 
-# Create tmux session with first agent
-tmux new-session -d -s "$SESSION" -x 200 -y 50 bash /tmp/agent-captain.sh
-# Set remain-on-exit so panes survive agent crashes
+# Create first agent's tmux session
+IFS=':' read -r name token_var model <<< "${AGENTS[0]}"
+state_dir="$HOME/.claude/channels/telegram-${name}"
+tmux new-session -d -s "$SESSION" -x 200 -y 50 \
+  "cd /workspace/agents/${name} && TELEGRAM_STATE_DIR=${state_dir} claude --dangerously-skip-permissions --model ${model} --channels plugin:telegram@claude-plugins-official; bash"
 tmux set-option -t "$SESSION" remain-on-exit on
 
 # Remaining agents get split panes
-tmux split-window -t "$SESSION" bash /tmp/agent-ceo-gonorth.sh
-tmux split-window -t "$SESSION" bash /tmp/agent-ux-gonorth.sh
+for i in 1 2; do
+  IFS=':' read -r name token_var model <<< "${AGENTS[$i]}"
+  state_dir="$HOME/.claude/channels/telegram-${name}"
+  tmux split-window -t "$SESSION" \
+    "cd /workspace/agents/${name} && TELEGRAM_STATE_DIR=${state_dir} claude --dangerously-skip-permissions --model ${model} --channels plugin:telegram@claude-plugins-official; bash"
+done
 tmux select-layout -t "$SESSION" tiled
 
-# Label panes (use pane IDs to avoid base-index issues)
+# Label panes (use pane IDs to avoid base-index issues from tmux.conf)
 PANE_IDS=($(tmux list-panes -t "$SESSION" -F '#{pane_id}'))
 for i in 0 1 2; do
   if [ -n "${PANE_IDS[$i]:-}" ] && [ -n "${PANE_LABELS[$i]:-}" ]; then
@@ -191,7 +156,6 @@ TTYD_ARGS=(--writable --port 7681)
 TTYD_ARGS+=(
   -t 'theme={"background":"#1e1e2e","foreground":"#cdd6f4","cursor":"#f5e0dc","cursorAccent":"#1e1e2e","selectionBackground":"#45475a","selectionForeground":"#cdd6f4","black":"#45475a","red":"#f38ba8","green":"#a6e3a1","yellow":"#f9e2af","blue":"#89b4fa","magenta":"#cba6f7","cyan":"#89dceb","white":"#bac2de","brightBlack":"#585b70","brightRed":"#f38ba8","brightGreen":"#a6e3a1","brightYellow":"#f9e2af","brightBlue":"#89b4fa","brightMagenta":"#cba6f7","brightCyan":"#89dceb","brightWhite":"#a6adc8"}'
   -t "fontFamily='JetBrains Mono','Fira Code','Cascadia Code','Menlo','Consolas',monospace"
-  -t 'fontSize=14'
   -t 'disableLeaveAlert=true'
 )
 
