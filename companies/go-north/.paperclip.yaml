@@ -8,20 +8,32 @@ adapter_defaults:
 
 agents:
   product-manager:
+    reportsTo: null
     adapter_config:
       model: claude-sonnet-4-6
+      instructionsFilePath: /paperclip/companies/go-north/agents/product-manager/AGENTS.md
   finance-officer:
+    reportsTo: product-manager
     adapter_config:
       model: claude-haiku-4-5-20251001
+      instructionsFilePath: /paperclip/companies/go-north/agents/finance-officer/AGENTS.md
   frontend-dev:
+    reportsTo: product-manager
     adapter_config:
       model: claude-sonnet-4-6
+      instructionsFilePath: /paperclip/companies/go-north/agents/frontend-dev/AGENTS.md
   backend-dev:
+    reportsTo: product-manager
     adapter_config:
       model: claude-sonnet-4-6
+      instructionsFilePath: /paperclip/companies/go-north/agents/backend-dev/AGENTS.md
   qa-lead:
+    reportsTo: product-manager
     adapter_config:
       model: claude-sonnet-4-6
+      instructionsFilePath: /paperclip/companies/go-north/agents/qa-lead/AGENTS.md
   ux-designer:
+    reportsTo: product-manager
     adapter_config:
       model: claude-sonnet-4-6
+      instructionsFilePath: /paperclip/companies/go-north/agents/ux-designer/AGENTS.md

@@ -204,18 +204,74 @@ else
 fi
 
 # --- Register agents ---
-# Agent definitions matching companies/go-north/.paperclip.yaml
-declare -A AGENT_DEFS=(
-  ["product-manager"]='{"name":"Product Manager","role":"pm","title":"Product Manager","adapterType":"claude_local","adapterConfig":{"model":"claude-sonnet-4-6","dangerouslySkipPermissions":true}}'
-  ["finance-officer"]='{"name":"Finance Officer","role":"cfo","title":"Finance Officer","adapterType":"claude_local","adapterConfig":{"model":"claude-haiku-4-5-20251001","dangerouslySkipPermissions":true}}'
-  ["frontend-dev"]='{"name":"Frontend Developer","role":"engineer","title":"Frontend Developer","adapterType":"claude_local","adapterConfig":{"model":"claude-sonnet-4-6","dangerouslySkipPermissions":true}}'
-  ["backend-dev"]='{"name":"Backend Developer","role":"engineer","title":"Backend Developer","adapterType":"claude_local","adapterConfig":{"model":"claude-sonnet-4-6","dangerouslySkipPermissions":true}}'
-  ["qa-lead"]='{"name":"QA Lead","role":"qa","title":"QA Lead","adapterType":"claude_local","adapterConfig":{"model":"claude-sonnet-4-6","dangerouslySkipPermissions":true}}'
-  ["ux-designer"]='{"name":"UX Designer","role":"designer","title":"UX Designer","adapterType":"claude_local","adapterConfig":{"model":"claude-sonnet-4-6","dangerouslySkipPermissions":true}}'
+# Container-internal base path for AGENTS.md files (matches docker-compose bind-mount)
+INSTRUCTIONS_BASE="/paperclip/companies/go-north/agents"
+
+# Short capabilities extracted from each AGENTS.md
+declare -A AGENT_CAPABILITIES=(
+  ["product-manager"]="Backlog management, user stories, PRDs, sprint planning, stakeholder translation, competitive analysis"
+  ["finance-officer"]="Budget tracking, LLM token cost analysis, cost-per-user estimates, billing monitoring, financial reporting"
+  ["frontend-dev"]="Next.js/React pages, Tailwind CSS, RTL/Hebrew support, mobile-first layouts, Supabase client SDK, WCAG accessibility"
+  ["backend-dev"]="Supabase/Postgres schemas, Next.js API routes, OpenAI AI SDK integration, RLS policies, Edge Functions"
+  ["qa-lead"]="Playwright E2E tests, visual regression, RTL/mobile testing, accessibility validation, release gates"
+  ["ux-designer"]="Figma designs, UX flows, design tokens, Hebrew-first RTL layouts, visual review, design handoff"
 )
 
-# Ordered list to preserve deterministic iteration
+# Build agent definitions with instructionsFilePath and capabilities.
+# reportsTo is injected after the PM is registered (see loop below).
+build_agent_body() {
+  local slug="$1" name="$2" role="$3" model="$4" reports_to="${5:-}"
+  local instructions_path="${INSTRUCTIONS_BASE}/${slug}/AGENTS.md"
+  local caps="${AGENT_CAPABILITIES[$slug]}"
+
+  python3 -c "
+import json, sys
+body = {
+    'name': sys.argv[1],
+    'role': sys.argv[2],
+    'title': sys.argv[1],
+    'capabilities': sys.argv[3],
+    'adapterType': 'claude_local',
+    'adapterConfig': {
+        'model': sys.argv[4],
+        'dangerouslySkipPermissions': True,
+        'instructionsFilePath': sys.argv[5],
+    },
+}
+if sys.argv[6]:
+    body['reportsTo'] = sys.argv[6]
+print(json.dumps(body))
+" "$name" "$role" "$caps" "$model" "$instructions_path" "$reports_to"
+}
+
+# Ordered list: PM first so we can resolve its ID for reportsTo
 AGENT_ORDER=("product-manager" "finance-officer" "frontend-dev" "backend-dev" "qa-lead" "ux-designer")
+
+# Agent metadata: name, role, model
+declare -A AGENT_NAMES=(
+  ["product-manager"]="Product Manager"
+  ["finance-officer"]="Finance Officer"
+  ["frontend-dev"]="Frontend Developer"
+  ["backend-dev"]="Backend Developer"
+  ["qa-lead"]="QA Lead"
+  ["ux-designer"]="UX Designer"
+)
+declare -A AGENT_ROLES=(
+  ["product-manager"]="pm"
+  ["finance-officer"]="cfo"
+  ["frontend-dev"]="engineer"
+  ["backend-dev"]="engineer"
+  ["qa-lead"]="qa"
+  ["ux-designer"]="designer"
+)
+declare -A AGENT_MODELS=(
+  ["product-manager"]="claude-sonnet-4-6"
+  ["finance-officer"]="claude-haiku-4-5-20251001"
+  ["frontend-dev"]="claude-sonnet-4-6"
+  ["backend-dev"]="claude-sonnet-4-6"
+  ["qa-lead"]="claude-sonnet-4-6"
+  ["ux-designer"]="claude-sonnet-4-6"
+)
 
 # Fetch existing agents
 EXISTING_AGENTS=$(api GET "/companies/${COMPANY_ID}/agents" 2>/dev/null || echo "[]")
@@ -223,7 +279,18 @@ EXISTING_AGENTS=$(api GET "/companies/${COMPANY_ID}/agents" 2>/dev/null || echo 
 declare -A AGENT_IDS=()
 
 for slug in "${AGENT_ORDER[@]}"; do
-  body="${AGENT_DEFS[$slug]}"
+  # Resolve reportsTo: PM reports to nobody; everyone else reports to PM
+  reports_to=""
+  if [[ "$slug" != "product-manager" ]]; then
+    reports_to="${AGENT_IDS[product-manager]:-}"
+  fi
+
+  body=$(build_agent_body \
+    "$slug" \
+    "${AGENT_NAMES[$slug]}" \
+    "${AGENT_ROLES[$slug]}" \
+    "${AGENT_MODELS[$slug]}" \
+    "$reports_to")
 
   # Check if agent already registered
   AGENT_ID=$(echo "$EXISTING_AGENTS" | python3 -c "
