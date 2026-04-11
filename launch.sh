@@ -155,7 +155,9 @@ TTYD_ARGS=(--writable --port 7681)
 # Catppuccin Mocha theme for ttyd (matches .tmux.conf)
 TTYD_ARGS+=(
   -t 'theme={"background":"#1e1e2e","foreground":"#cdd6f4","cursor":"#f5e0dc","cursorAccent":"#1e1e2e","selectionBackground":"#45475a","selectionForeground":"#cdd6f4","black":"#45475a","red":"#f38ba8","green":"#a6e3a1","yellow":"#f9e2af","blue":"#89b4fa","magenta":"#cba6f7","cyan":"#89dceb","white":"#bac2de","brightBlack":"#585b70","brightRed":"#f38ba8","brightGreen":"#a6e3a1","brightYellow":"#f9e2af","brightBlue":"#89b4fa","brightMagenta":"#cba6f7","brightCyan":"#89dceb","brightWhite":"#a6adc8"}'
-  -t "fontFamily='JetBrains Mono','Fira Code','Cascadia Code','Menlo','Consolas',monospace"
+  -t "fontFamily='Menlo','Monaco','Consolas','Liberation Mono','Courier New',monospace"
+  -t 'fontSize=12'
+  -t 'letterSpacing=0'
   -t 'disableLeaveAlert=true'
 )
 
@@ -170,6 +172,19 @@ TTYD_PID=$!
 
 echo "[war-room] ttyd started (pid=$TTYD_PID)"
 echo "[war-room] War room is live at http://localhost:7681"
+
+# --- Keep pane titles pinned (Claude Code overrides them via escape sequences) ---
+(
+  while true; do
+    sleep 10
+    PANE_IDS_BG=($(tmux list-panes -t "$SESSION" -F '#{pane_id}' 2>/dev/null)) || break
+    for i in 0 1 2; do
+      if [ -n "${PANE_IDS_BG[$i]:-}" ] && [ -n "${PANE_LABELS[$i]:-}" ]; then
+        tmux select-pane -t "${PANE_IDS_BG[$i]}" -T "${PANE_LABELS[$i]}" 2>/dev/null
+      fi
+    done
+  done
+) &
 
 # --- Keep container alive by waiting on ttyd ---
 wait "$TTYD_PID"
