@@ -136,3 +136,67 @@ These persist across `docker compose up -d --build` but are deleted by
 - **Bootstrap**: First user signed up via `/api/auth/sign-up/email` must be promoted
   to instance admin via the embedded PGlite database (user: `paperclip`, password:
   `paperclip`, database: `paperclip`, port: 54329) before they can create companies
+
+## OAuth vs API Key Auth
+
+- **Problem**: Setting `ANTHROPIC_API_KEY` in the war-room container alongside a
+  claude.ai OAuth token causes an auth conflict warning and breaks Telegram channels
+- **Fix**: Removed `ANTHROPIC_API_KEY` from the war-room service in `docker-compose.yml`.
+  War-room agents use claude.ai OAuth exclusively (via `/login` in each agent pane).
+  Paperclip still uses `ANTHROPIC_API_KEY` for its own Claude adapter.
+- **After every rebuild**: Open ttyd and run `/login` in each agent pane to restore
+  the OAuth token. Auth persists in the `war-room-state` Docker volume.
+
+## Agent Tooling (MCP Servers)
+
+Three MCP servers are configured dynamically in `launch.sh` at container startup:
+
+### Playwright MCP (Browser Automation)
+
+- **Service**: Dedicated `playwright` container in `docker-compose.yml` using the
+  official Microsoft image (`mcr.microsoft.com/playwright/mcp`)
+- **Access**: Headless Chromium on port 8931, accessible at `http://playwright:8931/mcp`
+  from war-room and paperclip containers
+- **Purpose**: All agents can navigate, screenshot, click, and inspect the Go-North
+  web app. Uses accessibility-tree approach (token-efficient, no vision model needed)
+- **Config**: Always enabled, no credentials needed
+
+### Bitbucket Cloud MCP (Code Management)
+
+- **Package**: `bitbucket-mcp` (npm, MatanYemini) -- supports Cloud and Server
+- **Auth**: Token (`BITBUCKET_TOKEN`) OR username/password (`BITBUCKET_USERNAME` +
+  `BITBUCKET_PASSWORD`). Token takes precedence if both are set.
+- **Config**: Conditionally enabled in `launch.sh` when credentials are present
+- **Setup**: Add credentials to `.env` on the deployment machine (never committed)
+
+### Trello MCP (Task Management)
+
+- **Package**: `trello-mcp-server` (npm)
+- **Auth**: `TRELLO_API_KEY` + `TRELLO_API_TOKEN`
+- **Token generation**: Visit
+  `https://trello.com/1/authorize?key=YOUR_KEY&scope=read,write&expiration=never&response_type=token&name=WarRoom`
+- **Config**: Conditionally enabled in `launch.sh` when credentials are present
+- **Setup**: Add credentials to `.env` on the deployment machine (never committed)
+
+### MCP Config Architecture
+
+- `config/mcp-settings.json` contains static fallback (Playwright only)
+- `launch.sh` builds the full MCP config dynamically at container startup using
+  Node.js, resolving env vars at runtime. Writes to `~/.claude/settings.json`
+- Bitbucket and Trello are only added when their env vars are set
+
+## Figma Removal
+
+- Removed all 20 Figma references across 6 agent configuration files
+- Replaced with browser-based visual review using Playwright MCP + markdown design specs
+- UX Designer (Hedva) now uses Playwright to screenshot the app and annotate
+  issues in markdown instead of creating Figma mockups
+- Files updated: `agents/captain/CLAUDE.md`, `agents/ceo-gonorth/CLAUDE.md`,
+  `agents/ux-gonorth/CLAUDE.md`, `companies/go-north/COMPANY.md`,
+  `companies/go-north/agents/frontend-dev/AGENTS.md`,
+  `companies/go-north/agents/ux-designer/AGENTS.md`
+
+## ttyd Password
+
+- Avoid `#` characters in `TTYD_PASSWORD` -- they can cause issues with browser
+  Basic Auth dialogs and URL encoding. Use alphanumeric passwords.
