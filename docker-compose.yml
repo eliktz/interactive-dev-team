@@ -45,10 +45,14 @@ services:
       # ttyd auth
       TTYD_USERNAME: ${TTYD_USERNAME:-}
       TTYD_PASSWORD: ${TTYD_PASSWORD:-}
-      # Bitbucket Cloud
+      # Bitbucket Cloud (token OR username/password)
+      BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
       BITBUCKET_USERNAME: ${BITBUCKET_USERNAME:-}
       BITBUCKET_PASSWORD: ${BITBUCKET_PASSWORD:-}
       BITBUCKET_URL: ${BITBUCKET_URL:-https://api.bitbucket.org/2.0}
+      # Trello
+      TRELLO_API_KEY: ${TRELLO_API_KEY:-}
+      TRELLO_API_TOKEN: ${TRELLO_API_TOKEN:-}
       # Paperclip connection (Docker network)
       PAPERCLIP_URL: http://paperclip:3100
     volumes:

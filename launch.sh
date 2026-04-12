@@ -66,15 +66,30 @@ const config = { mcpServers: {} };
 // Playwright browser (always available)
 config.mcpServers.playwright = { url: 'http://playwright:8931/mcp' };
 
-// Bitbucket Cloud (if credentials provided)
-if (process.env.BITBUCKET_USERNAME && process.env.BITBUCKET_PASSWORD) {
+// Bitbucket Cloud (token OR username/password)
+if (process.env.BITBUCKET_TOKEN || (process.env.BITBUCKET_USERNAME && process.env.BITBUCKET_PASSWORD)) {
+  const bbEnv = { BITBUCKET_URL: process.env.BITBUCKET_URL || 'https://api.bitbucket.org/2.0' };
+  if (process.env.BITBUCKET_TOKEN) {
+    bbEnv.BITBUCKET_TOKEN = process.env.BITBUCKET_TOKEN;
+  } else {
+    bbEnv.BITBUCKET_USERNAME = process.env.BITBUCKET_USERNAME;
+    bbEnv.BITBUCKET_PASSWORD = process.env.BITBUCKET_PASSWORD;
+  }
   config.mcpServers.bitbucket = {
     command: 'npx',
     args: ['-y', 'bitbucket-mcp@latest'],
+    env: bbEnv
+  };
+}
+
+// Trello (if credentials provided)
+if (process.env.TRELLO_API_KEY && process.env.TRELLO_API_TOKEN) {
+  config.mcpServers.trello = {
+    command: 'npx',
+    args: ['-y', 'trello-mcp-server'],
     env: {
-      BITBUCKET_URL: process.env.BITBUCKET_URL || 'https://api.bitbucket.org/2.0',
-      BITBUCKET_USERNAME: process.env.BITBUCKET_USERNAME,
-      BITBUCKET_PASSWORD: process.env.BITBUCKET_PASSWORD
+      TRELLO_API_KEY: process.env.TRELLO_API_KEY,
+      TRELLO_API_TOKEN: process.env.TRELLO_API_TOKEN
     }
   };
 }
