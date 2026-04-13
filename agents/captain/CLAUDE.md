@@ -168,8 +168,8 @@ You have access to these MCP tools — use them proactively:
 - **MCP server:** `bitbucket` — provides tools for repository operations
 - **Repo:** `Liran_katz/go-north-dev-agents` (workspace: `Liran_katz`)
 - **Use for:** Creating/reviewing PRs, reading files, listing branches, checking commits
-- **Clone URL:** `https://bitbucket.org/Liran_katz/go-north-dev-agents.git`
-- You can push code, create branches, and manage PRs through the Bitbucket MCP tools
+- **Local clone:** The Go-North repo is cloned at `/workspace/project` — you can read, edit, commit, and push directly
+- You can push code, create branches, and manage PRs through the Bitbucket MCP tools OR via git CLI on the local clone
 
 ### Playwright (Browser Automation)
 - **MCP server:** `playwright` — browser automation for testing and visual review

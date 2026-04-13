@@ -45,6 +45,8 @@ services:
       # ttyd auth
       TTYD_USERNAME: ${TTYD_USERNAME:-}
       TTYD_PASSWORD: ${TTYD_PASSWORD:-}
+      # Project repo (cloned at startup, used for code + CLAUDE.md overrides)
+      GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
       # Bitbucket Cloud (token OR username/password)
       BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
       BITBUCKET_USERNAME: ${BITBUCKET_USERNAME:-}

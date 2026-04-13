@@ -38,6 +38,56 @@ echo "[war-room] Claude Code version: $(claude --version)"
 echo "[war-room] Bun version: $(bun --version)"
 echo "[war-room] Running as: $(whoami) (uid=$(id -u))"
 
+# --- Clone project repo (Go-North) ---
+PROJECT_DIR="/workspace/project"
+if [ -n "${GONORTH_REPO_URL:-}" ]; then
+  if [ -d "$PROJECT_DIR/.git" ]; then
+    echo "[war-room] Project repo already cloned, pulling latest..."
+    cd "$PROJECT_DIR" && git pull --ff-only 2>&1 || echo "[war-room] WARNING: git pull failed (non-fatal)"
+    cd /workspace
+  else
+    echo "[war-room] Cloning project repo..."
+    # Build clone URL with token auth if BITBUCKET_TOKEN is set
+    CLONE_URL="$GONORTH_REPO_URL"
+    if [ -n "${BITBUCKET_TOKEN:-}" ] && echo "$CLONE_URL" | grep -q "bitbucket.org"; then
+      CLONE_URL=$(echo "$CLONE_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
+    fi
+    git clone "$CLONE_URL" "$PROJECT_DIR" 2>&1 || echo "[war-room] WARNING: git clone failed (non-fatal)"
+  fi
+
+  # Configure git user for commits
+  if [ -d "$PROJECT_DIR/.git" ]; then
+    cd "$PROJECT_DIR"
+    git config user.email "war-room@gonorth.ai"
+    git config user.name "War Room Agent"
+    # Set push URL with token so agents can push
+    if [ -n "${BITBUCKET_TOKEN:-}" ] && echo "$GONORTH_REPO_URL" | grep -q "bitbucket.org"; then
+      PUSH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
+      git remote set-url origin "$PUSH_URL"
+    fi
+    cd /workspace
+    echo "[war-room] Project repo ready at $PROJECT_DIR"
+  fi
+else
+  echo "[war-room] GONORTH_REPO_URL not set — skipping project repo clone"
+fi
+export PROJECT_DIR
+
+# --- Override CLAUDE.md from project repo ---
+# If the project repo has ./agents/{name}/CLAUDE.md, use it instead of the
+# baked-in war-room version. This lets the project team customize agent
+# behavior without rebuilding the war-room container.
+if [ -d "$PROJECT_DIR/agents" ]; then
+  for agent_dir in /workspace/agents/*/; do
+    agent_name=$(basename "$agent_dir")
+    project_claude="$PROJECT_DIR/agents/${agent_name}/CLAUDE.md"
+    if [ -f "$project_claude" ]; then
+      cp "$project_claude" "${agent_dir}CLAUDE.md"
+      echo "[war-room] [$agent_name] CLAUDE.md overridden from project repo"
+    fi
+  done
+fi
+
 # --- Pre-accept API key dialog (only if API key is set) ---
 CLAUDE_JSON="$HOME/.claude.json"
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then

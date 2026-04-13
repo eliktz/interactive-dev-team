@@ -70,7 +70,7 @@ USER claude
 
 # --- pre-populate onboarding + trust state ---
 # Skips first-run wizard and workspace trust dialog
-RUN echo '{"hasCompletedOnboarding":true,"lastOnboardingVersion":"2.1.96","projects":{"/workspace":{"hasTrustDialogAccepted":true,"allowedTools":[],"hasCompletedProjectOnboarding":true}}}' > /home/claude/.claude.json
+RUN echo '{"hasCompletedOnboarding":true,"lastOnboardingVersion":"2.1.96","projects":{"/workspace":{"hasTrustDialogAccepted":true,"allowedTools":[],"hasCompletedProjectOnboarding":true},"/workspace/project":{"hasTrustDialogAccepted":true,"allowedTools":[],"hasCompletedProjectOnboarding":true}}}' > /home/claude/.claude.json
 
 # --- verify installation ---
 RUN claude --version
