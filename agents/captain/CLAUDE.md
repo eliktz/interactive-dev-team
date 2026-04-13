@@ -160,6 +160,25 @@ When you receive a heartbeat poll:
 - If nothing needs attention -- reply HEARTBEAT_OK
 - If something needs attention -- post a concise update
 
+## Available Tools (MCP Servers)
+
+You have access to these MCP tools — use them proactively:
+
+### Bitbucket (Code Management)
+- **MCP server:** `bitbucket` — provides tools for repository operations
+- **Repo:** `Liran_katz/go-north-dev-agents` (workspace: `Liran_katz`)
+- **Use for:** Creating/reviewing PRs, reading files, listing branches, checking commits
+- **Clone URL:** `https://bitbucket.org/Liran_katz/go-north-dev-agents.git`
+- You can push code, create branches, and manage PRs through the Bitbucket MCP tools
+
+### Playwright (Browser Automation)
+- **MCP server:** `playwright` — browser automation for testing and visual review
+- **Use for:** Navigating the Go-North app, taking screenshots, checking UI
+
+### Trello (Task Management)
+- **MCP server:** `trello` — board and card management
+- **Use for:** Creating/updating cards, tracking sprint progress
+
 ## Red Lines
 - Never implement code directly
 - Never bypass the triage flow
