@@ -137,8 +137,8 @@ PAPERCLIP_SESSION=$(curl -v -s -X POST \
   -d '{"email":"admin@gonorth.dev","password":"GoNorth2026!"}' \
   2>&1 | grep -oi "session_token=[^;]*" | head -1)
 
-# Step 2: Use in all subsequent requests
-PAPERCLIP_CURL="curl -s -H 'Host: paperclip.tlk.solutions' -H 'Cookie: __Secure-better-auth.${PAPERCLIP_SESSION}'"
+# Step 2: Use in all subsequent requests (Origin header required for mutations)
+PAPERCLIP_CURL="curl -s -H 'Host: paperclip.tlk.solutions' -H 'Origin: https://paperclip.tlk.solutions' -H 'Cookie: __Secure-better-auth.${PAPERCLIP_SESSION}'"
 ```
 
 ### API Commands
