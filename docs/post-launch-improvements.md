@@ -200,3 +200,43 @@ Three MCP servers are configured dynamically in `launch.sh` at container startup
 
 - Avoid `#` characters in `TTYD_PASSWORD` -- they can cause issues with browser
   Basic Auth dialogs and URL encoding. Use alphanumeric passwords.
+
+## Paperclip Hostname Workaround
+
+- **Problem**: Paperclip in `authenticated` mode rejects requests where the `Host` header
+  doesn't match its allowed hostnames list. The Docker internal hostname `paperclip` is not
+  in the list — only `paperclip.tlk.solutions` is allowed.
+- **Workaround**: All curl requests from war-room agents use the Host header trick:
+  ```bash
+  curl -s -H "Host: paperclip.tlk.solutions" http://paperclip:3100/api/...
+  ```
+  This sends the request via the fast internal Docker network but with the allowed hostname.
+- **Auth**: Paperclip uses `__Secure-better-auth.session_token` cookies with the `Secure`
+  flag. Since internal requests use HTTP (not HTTPS), cookie files (`-c`) don't work.
+  Agents must extract the token from verbose curl output:
+  ```bash
+  SESSION=$(curl -v -s -X POST -H "Host: paperclip.tlk.solutions" \
+    http://paperclip:3100/api/auth/sign-in/email \
+    -H "Content-Type: application/json" \
+    -d '{"email":"admin@gonorth.dev","password":"GoNorth2026!"}' \
+    2>&1 | grep -oi "session_token=[^;]*" | head -1)
+  ```
+
+## Project Repo Clone at Startup
+
+- **Feature**: `launch.sh` now clones `GONORTH_REPO_URL` at container startup into
+  `/workspace/project`. On subsequent restarts, pulls latest instead of re-cloning.
+- **Git auth**: If `BITBUCKET_TOKEN` is set, the clone URL is automatically constructed
+  with token auth (`https://x-token-auth:<token>@bitbucket.org/...`)
+- **Push support**: Git remote is configured with token auth so agents can commit and push
+- **Env var**: Set `GONORTH_REPO_URL` in `.env` (e.g., `https://bitbucket.org/Liran_katz/go-north-dev-agents.git`)
+
+## CLAUDE.md Override from Project Repo
+
+- **Feature**: If the project repo has `./agents/{name}/CLAUDE.md` files, they override
+  the baked-in war-room versions at container startup
+- **Purpose**: Lets the project team customize agent behavior (e.g., add project-specific
+  context, change routing rules) without rebuilding the war-room Docker image
+- **Path**: Project repo `./agents/captain/CLAUDE.md` → `/workspace/agents/captain/CLAUDE.md`
+- **Override is complete replacement**, not merge — the project version fully replaces the
+  war-room default
