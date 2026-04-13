@@ -121,21 +121,39 @@ Before any feature is considered complete:
 4. **Approval artifacts** -- QA Lead posts the Playwright visual report before moving to Done
 
 ## Paperclip Server
-- URL: $PAPERCLIP_URL
-- Company ID: $PAPERCLIP_COMPANY_ID
+- Internal URL: http://paperclip:3100
+- External URL: https://paperclip.tlk.solutions
+- Company ID: a951bb35-24a9-412a-bbcc-629c5acae619
+
+### Authentication
+Paperclip requires session auth. All curl commands MUST include the Host header and auth cookie:
+
+```bash
+# Step 1: Sign in and get session token (do this once per session)
+PAPERCLIP_SESSION=$(curl -v -s -X POST \
+  -H "Host: paperclip.tlk.solutions" \
+  http://paperclip:3100/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@gonorth.dev","password":"GoNorth2026!"}' \
+  2>&1 | grep -oi "session_token=[^;]*" | head -1)
+
+# Step 2: Use in all subsequent requests
+PAPERCLIP_CURL="curl -s -H 'Host: paperclip.tlk.solutions' -H 'Cookie: __Secure-better-auth.${PAPERCLIP_SESSION}'"
+```
 
 ### API Commands
-- List agents: `curl -s $PAPERCLIP_URL/api/companies/$PAPERCLIP_COMPANY_ID/agents`
-- Create issue: `curl -X POST $PAPERCLIP_URL/api/companies/$PAPERCLIP_COMPANY_ID/issues -H "Content-Type: application/json" -d '{"title":"...","description":"..."}'`
-- Check agent: `curl -s $PAPERCLIP_URL/api/agents/{agentId}`
+All commands require the Host header and auth cookie from above.
+- List agents: `eval $PAPERCLIP_CURL http://paperclip:3100/api/companies/a951bb35-24a9-412a-bbcc-629c5acae619/agents`
+- Create issue: `eval $PAPERCLIP_CURL -X POST http://paperclip:3100/api/companies/a951bb35-24a9-412a-bbcc-629c5acae619/issues -H "Content-Type: application/json" -d '{"title":"...","description":"..."}'`
+- Check agent: `eval $PAPERCLIP_CURL http://paperclip:3100/api/agents/{agentId}`
 
 ### Agent IDs
-- Product Manager: $PAPERCLIP_AGENT_ID_PRODUCT_MANAGER
-- Finance Officer: $PAPERCLIP_AGENT_ID_FINANCE_OFFICER
-- Frontend Dev: $PAPERCLIP_AGENT_ID_FRONTEND_DEV
-- Backend Dev: $PAPERCLIP_AGENT_ID_BACKEND_DEV
-- QA Lead: $PAPERCLIP_AGENT_ID_QA_LEAD
-- UX Designer (Hedva): $PAPERCLIP_AGENT_ID_UX_DESIGNER
+- Product Manager: 804e87be-4e8a-4baa-952d-3472662e7fda
+- Finance Officer: 369d3f3a-9c89-446f-ad28-2c589d688b5f
+- Frontend Dev: 11765603-a552-442a-bbca-b95f7aca9cf3
+- Backend Dev: 2dea472e-8a43-4131-9d8c-2ba429adcb84
+- QA Lead: a8489f81-1e3f-4d9f-b302-59222c5819d9
+- UX Designer (Hedva): 0fef41ec-014f-4c14-ac6f-5041b1a44961
 
 ## Project Context
 
