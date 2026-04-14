@@ -197,11 +197,10 @@ for agent_def in "${AGENTS[@]}"; do
 
   # Create access.json if missing (whitelists the group and operator for Telegram)
   if [ ! -f "$state_dir/access.json" ] && [ -n "${GONORTH_GROUP_ID:-}" ]; then
-    # Captain sees all messages; other agents require @mention
-    require_mention="true"
-    if [ "$name" = "captain" ]; then
-      require_mention="false"
-    fi
+    # All agents see all messages (bot-to-bot @mentions don't work on Telegram,
+    # so agents must read all messages and decide whether to respond based on
+    # their CLAUDE.md instructions)
+    require_mention="false"
 
     cat > "$state_dir/access.json" << ACCESSEOF
 {
