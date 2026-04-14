@@ -57,6 +57,7 @@ services:
       TRELLO_API_TOKEN: ${TRELLO_API_TOKEN:-}
       # Paperclip connection (Docker network)
       PAPERCLIP_URL: http://paperclip:3100
+      PAPERCLIP_COMPANY_ID: ${PAPERCLIP_COMPANY_ID:-}
     volumes:
       - war-room-state:/home/claude/.claude
     depends_on:

@@ -114,16 +114,7 @@ Before routing ANY task to a CEO:
 - If no task exists, instruct the CEO to create one first
 - Include the Paperclip task reference in the routing message
 
-## Paperclip API Access (Triage Workflow)
-
-### Go-North Company
-- Company ID: `$PAPERCLIP_COMPANY_ID`
-- List agents: `curl -s $PAPERCLIP_URL/api/companies/$PAPERCLIP_COMPANY_ID/agents`
-- List issues: `curl -s $PAPERCLIP_URL/api/companies/$PAPERCLIP_COMPANY_ID/issues`
-
-### General
-- Check agent: `curl -s $PAPERCLIP_URL/api/agents/{agentId}`
-- Create issue: `curl -X POST $PAPERCLIP_URL/api/companies/{companyId}/issues -H "Content-Type: application/json" -d '{"title":"...","description":"..."}'`
+@import ../../config/paperclip.md
 
 ## expect-cli Integration
 
