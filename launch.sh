@@ -74,20 +74,26 @@ fi
 export PROJECT_DIR
 
 # --- Override agent files from project repo ---
-# If the project repo has ./agents/{name}/*.md files, use them instead of the
-# baked-in war-room versions. This lets the project team customize agent
-# behavior without rebuilding the war-room container.
-# Files overridden: CLAUDE.md, SOUL.md, AGENTS.md, TOOLS.md (any .md in agent dir)
+# If the project repo has ./agents/{name}/ directory, it FULLY REPLACES the
+# baked-in war-room version. This prevents stale/orphaned files when the project
+# repo uses a different file schema (e.g., monolithic CLAUDE.md vs split files).
+#
+# Safety: if the project repo has a legacy monolithic CLAUDE.md (no @import),
+# the war room's SOUL.md/AGENTS.md/TOOLS.md are removed so they don't silently
+# coexist with a monolith that ignores them.
 if [ -d "$PROJECT_DIR/agents" ]; then
   for agent_dir in /workspace/agents/*/; do
     agent_name=$(basename "$agent_dir")
     project_agent_dir="$PROJECT_DIR/agents/${agent_name}"
     if [ -d "$project_agent_dir" ]; then
+      # Remove ALL .md files from war-room version first (full replace, not merge)
+      rm -f "${agent_dir}"*.md
+      # Copy ALL .md files from project repo
       for md_file in "$project_agent_dir"/*.md; do
         [ -f "$md_file" ] || continue
         cp "$md_file" "${agent_dir}"
       done
-      echo "[war-room] [$agent_name] agent files overridden from project repo"
+      echo "[war-room] [$agent_name] agent files replaced from project repo"
     fi
   done
 fi
