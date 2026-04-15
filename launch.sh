@@ -73,19 +73,34 @@ else
 fi
 export PROJECT_DIR
 
-# --- Override CLAUDE.md from project repo ---
-# If the project repo has ./agents/{name}/CLAUDE.md, use it instead of the
-# baked-in war-room version. This lets the project team customize agent
+# --- Override agent files from project repo ---
+# If the project repo has ./agents/{name}/*.md files, use them instead of the
+# baked-in war-room versions. This lets the project team customize agent
 # behavior without rebuilding the war-room container.
+# Files overridden: CLAUDE.md, SOUL.md, AGENTS.md, TOOLS.md (any .md in agent dir)
 if [ -d "$PROJECT_DIR/agents" ]; then
   for agent_dir in /workspace/agents/*/; do
     agent_name=$(basename "$agent_dir")
-    project_claude="$PROJECT_DIR/agents/${agent_name}/CLAUDE.md"
-    if [ -f "$project_claude" ]; then
-      cp "$project_claude" "${agent_dir}CLAUDE.md"
-      echo "[war-room] [$agent_name] CLAUDE.md overridden from project repo"
+    project_agent_dir="$PROJECT_DIR/agents/${agent_name}"
+    if [ -d "$project_agent_dir" ]; then
+      for md_file in "$project_agent_dir"/*.md; do
+        [ -f "$md_file" ] || continue
+        cp "$md_file" "${agent_dir}"
+      done
+      echo "[war-room] [$agent_name] agent files overridden from project repo"
     fi
   done
+fi
+
+# --- Override shared config from project repo ---
+# Copy config/*.md files (paperclip.md, trello.md, etc.) from project repo
+if [ -d "$PROJECT_DIR/config" ]; then
+  mkdir -p /workspace/config
+  for cfg_file in "$PROJECT_DIR/config"/*.md; do
+    [ -f "$cfg_file" ] || continue
+    cp "$cfg_file" /workspace/config/
+  done
+  echo "[war-room] Shared config files overridden from project repo"
 fi
 
 # --- Pre-accept API key dialog (only if API key is set) ---
@@ -219,6 +234,31 @@ ACCESSEOF
   fi
 done
 
+# --- Generate per-agent start scripts ---
+# These ensure agents always restart with the correct flags.
+# If someone manually restarts an agent, they can just run ./start.sh
+for agent_def in "${AGENTS[@]}"; do
+  IFS=':' read -r name token_var model <<< "$agent_def"
+  state_dir="$HOME/.claude/channels/telegram-${name}"
+  start_script="/workspace/agents/${name}/start.sh"
+  cat > "$start_script" << STARTEOF
+#!/usr/bin/env bash
+# Auto-generated start script for agent: ${name}
+# Run this to restart the agent with the correct flags.
+cd /workspace/agents/${name}
+export TELEGRAM_STATE_DIR=${state_dir}
+while true; do
+  echo "[${name}] Starting Claude Code (model: ${model})..."
+  claude --dangerously-skip-permissions --model ${model} --channels plugin:telegram@claude-plugins-official
+  EXIT_CODE=\$?
+  echo "[${name}] Claude Code exited (code \$EXIT_CODE). Restarting in 5s... (Ctrl+C to stop)"
+  sleep 5
+done
+STARTEOF
+  chmod +x "$start_script"
+  echo "[war-room] [$name] start.sh created"
+done
+
 # --- Create tmux session with 3 agent panes ---
 echo "[war-room] Creating tmux session '$SESSION'..."
 
@@ -226,21 +266,20 @@ echo "[war-room] Creating tmux session '$SESSION'..."
 # No --input/output-format stream-json (shows normal REPL UI).
 # No -p flag (CLAUDE.md is picked up automatically).
 # Channels plugin keeps the process alive as a long-running listener.
+# Agents auto-restart on exit via start.sh wrapper.
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
 
 # Create first agent's tmux session
 IFS=':' read -r name token_var model <<< "${AGENTS[0]}"
-state_dir="$HOME/.claude/channels/telegram-${name}"
 tmux new-session -d -s "$SESSION" -x 200 -y 50 \
-  "cd /workspace/agents/${name} && TELEGRAM_STATE_DIR=${state_dir} claude --dangerously-skip-permissions --model ${model} --channels plugin:telegram@claude-plugins-official; bash"
+  "/workspace/agents/${name}/start.sh"
 tmux set-option -t "$SESSION" remain-on-exit on
 
 # Remaining agents get split panes
 for i in 1 2; do
   IFS=':' read -r name token_var model <<< "${AGENTS[$i]}"
-  state_dir="$HOME/.claude/channels/telegram-${name}"
   tmux split-window -t "$SESSION" \
-    "cd /workspace/agents/${name} && TELEGRAM_STATE_DIR=${state_dir} claude --dangerously-skip-permissions --model ${model} --channels plugin:telegram@claude-plugins-official; bash"
+    "/workspace/agents/${name}/start.sh"
 done
 tmux select-layout -t "$SESSION" tiled
 

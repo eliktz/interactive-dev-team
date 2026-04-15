@@ -69,8 +69,30 @@ RUN chmod +x /workspace/launch.sh
 USER claude
 
 # --- pre-populate onboarding + trust state ---
-# Skips first-run wizard and workspace trust dialog
-RUN echo '{"hasCompletedOnboarding":true,"lastOnboardingVersion":"2.1.96","projects":{"/workspace":{"hasTrustDialogAccepted":true,"allowedTools":[],"hasCompletedProjectOnboarding":true},"/workspace/project":{"hasTrustDialogAccepted":true,"allowedTools":[],"hasCompletedProjectOnboarding":true}}}' > /home/claude/.claude.json
+# Skips first-run wizard, workspace trust dialog, and pre-approves all tools
+# to prevent the Telegram plugin's permission relay from prompting the operator.
+# NOTE: Each agent path must be listed explicitly for allowedTools to take effect.
+RUN node -e ' \
+  const tools = [ \
+    "mcp__plugin_telegram_telegram__reply", \
+    "mcp__plugin_telegram_telegram__download_attachment", \
+    "Bash","Read","Write","Edit","Grep","Glob","WebFetch","WebSearch", \
+    "mcp__bitbucket__*","mcp__trello__*","mcp__playwright__*" \
+  ]; \
+  const proj = (p) => ({ hasTrustDialogAccepted: true, allowedTools: tools, hasCompletedProjectOnboarding: true }); \
+  const config = { \
+    hasCompletedOnboarding: true, \
+    lastOnboardingVersion: "2.1.96", \
+    projects: { \
+      "/workspace": proj(), \
+      "/workspace/project": proj(), \
+      "/workspace/agents/captain": proj(), \
+      "/workspace/agents/ceo-gonorth": proj(), \
+      "/workspace/agents/ux-gonorth": proj() \
+    } \
+  }; \
+  require("fs").writeFileSync("/home/claude/.claude.json", JSON.stringify(config)); \
+'
 
 # --- verify installation ---
 RUN claude --version
