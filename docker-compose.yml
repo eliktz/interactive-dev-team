@@ -60,6 +60,10 @@ services:
       PAPERCLIP_COMPANY_ID: ${PAPERCLIP_COMPANY_ID:-}
     volumes:
       - war-room-state:/home/claude/.claude
+      # Shared project repo — same volume as Paperclip container
+      - project-repo:/workspace/project
+      # SSH key for deploying to Plesk (optional, mount if available)
+      - ${DEPLOY_SSH_KEY_PATH:-/dev/null}:/home/claude/.ssh/deploy_key:ro
     depends_on:
       paperclip:
         condition: service_healthy
@@ -82,9 +86,14 @@ services:
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-paperclip-change-me-in-production}"
       PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
       PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
+      # Git credentials for Paperclip agents to push code
+      BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
+      GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
     volumes:
       - paperclip-data:/paperclip
       - ./companies:/paperclip/companies:ro
+      # Shared project repo — Paperclip agents can read/write/push code
+      - project-repo:/workspace/project
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3100/api/health"]
       interval: 5s
@@ -103,3 +112,4 @@ services:
 volumes:
   war-room-state:
   paperclip-data:
+  project-repo:

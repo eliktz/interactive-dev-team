@@ -5,6 +5,7 @@ adapter_defaults:
   adapter_config:
     dangerouslySkipPermissions: true
     model: claude-sonnet-4-6
+    workingDirectory: /workspace/project
 
 agents:
   product-manager:

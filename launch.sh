@@ -73,6 +73,26 @@ else
 fi
 export PROJECT_DIR
 
+# --- Configure SSH deploy key (if mounted) ---
+DEPLOY_KEY="$HOME/.ssh/deploy_key"
+if [ -f "$DEPLOY_KEY" ] && [ -s "$DEPLOY_KEY" ]; then
+  mkdir -p "$HOME/.ssh"
+  chmod 700 "$HOME/.ssh"
+  chmod 600 "$DEPLOY_KEY"
+  # Create SSH config for the deploy host
+  cat > "$HOME/.ssh/config" << SSHEOF
+Host deploy-plesk
+  HostName 34.165.203.65
+  User gonorthdev
+  IdentityFile $DEPLOY_KEY
+  StrictHostKeyChecking no
+SSHEOF
+  chmod 600 "$HOME/.ssh/config"
+  echo "[war-room] SSH deploy key configured"
+else
+  echo "[war-room] No SSH deploy key found — deploy to Plesk not available"
+fi
+
 # --- Override agent files from project repo ---
 # If the project repo has ./agents/{name}/ directory, it FULLY REPLACES the
 # baked-in war-room version. This prevents stale/orphaned files when the project

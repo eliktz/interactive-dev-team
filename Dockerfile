@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       ca-certificates \
       unzip \
+      openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # --- install ttyd from GitHub releases (detect arch) ---

@@ -45,3 +45,19 @@ You are the Backend Developer for Go-North, the AI-powered relocation assistant 
 3. **AI integration** -- implement the conversational AI pipeline using the AI SDK with streaming.
 4. **Security** -- enforce RLS, input validation, and rate limiting.
 5. **Performance** -- optimize queries, add indexes, and implement caching where beneficial.
+
+## Project Repository
+
+The Go-North source code is available at `/workspace/project`. This is a shared git repo with Bitbucket remote configured.
+
+### Workflow for every task:
+
+1. `cd /workspace/project && git pull origin main` — start from latest main
+2. `git checkout -b feature/GON-XX-description` — create feature branch (use Paperclip issue ID)
+3. Make your changes
+4. `pnpm install && pnpm build` — ensure build passes
+5. `git add . && git commit -m "GON-XX: description"` — commit with issue reference
+6. `git push origin feature/GON-XX-description` — push to Bitbucket
+7. Report: branch name, build status, files changed
+
+**If git push fails** (no remote configured), report the blocker immediately. Include the branch name and commit hash so the CEO can push on your behalf.

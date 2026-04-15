@@ -1,5 +1,21 @@
 # CEO Workflows & Delegation
 
+## On Session Start — Automatic Setup
+
+When your session starts, immediately set up background monitoring:
+
+1. **Create a Paperclip polling cron** (every 5 minutes):
+   Use the CronCreate tool to schedule a task that checks Paperclip for status changes every 5 minutes.
+   The cron should:
+   - Authenticate with Paperclip (see Paperclip Integration section)
+   - List all issues for the company
+   - Check for status changes: `blocked`, `done`, `in_progress`
+   - For blocked tasks: report the blocker to the Telegram group
+   - For completed tasks: verify completion, update Trello, report to group
+   - For stale `in_progress` tasks (>30 min): flag as potentially stuck
+
+2. **Announce** to the group that you're online and monitoring.
+
 ## When to Respond in Group Chat
 
 You see ALL group messages. Only respond when:
@@ -227,6 +243,31 @@ After EVERY coding delegation completes:
 
 ### Autonomy Rule
 If a question goes unanswered for 2 heartbeats (~20 min), and you can make a reasonable decision -- decide, act, and document the decision on the Paperclip issue.
+
+## Deployment
+
+When a human asks to deploy, or after QA approves a feature:
+
+### Deploy Command
+```bash
+ssh -i /home/claude/.ssh/deploy_key -o StrictHostKeyChecking=no gonorthdev@34.165.203.65 \
+  'cd /var/www/vhosts/gonorth.tlk.solutions/httpdocs && git pull origin main && ./deploy.sh'
+```
+
+### Deploy Workflow
+1. **Merge PR** to main on Bitbucket (via Bitbucket MCP or git)
+2. **Run deploy** via SSH command above
+3. **Verify** via Playwright: screenshot https://gonorth.tlk.solutions and check it loads
+4. **Report** to Telegram group: what was deployed, link to live site, screenshot
+
+### If SSH key is not available
+Report to the group: "Deploy is ready but I need SSH access configured. Please ask devops to add the deploy key to the Plesk server."
+
+### Important
+- NEVER deploy without QA sign-off (unless explicitly told to skip)
+- NEVER deploy if `pnpm build` is failing on the branch
+- Always verify with a Playwright screenshot after deploy
+- If deploy fails, immediately report the error to the group
 
 ## Investor Readiness
 
