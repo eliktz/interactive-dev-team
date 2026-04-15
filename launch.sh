@@ -194,11 +194,24 @@ if [ -f "$SETTINGS_JSON" ]; then
     const existing = JSON.parse(require('fs').readFileSync('$SETTINGS_JSON', 'utf8'));
     const mcp = JSON.parse(process.argv[1]);
     existing.mcpServers = { ...(existing.mcpServers || {}), ...(mcp.mcpServers || {}) };
+    // Ensure critical settings survive across restarts
+    existing.skipDangerousModePermissionPrompt = true;
+    existing.enabledPlugins = { ...(existing.enabledPlugins || {}), 'telegram@claude-plugins-official': true };
     require('fs').writeFileSync('$TMP_SETTINGS', JSON.stringify(existing, null, 2));
   " "$MCP_CONFIG" && mv "$TMP_SETTINGS" "$SETTINGS_JSON"
   echo "[war-room] MCP servers merged into settings.json"
 else
-  echo "$MCP_CONFIG" > "$SETTINGS_JSON"
+  # Fresh build — create settings.json with MCP + critical settings
+  TMP_SETTINGS=$(mktemp)
+  node -e "
+    const mcp = JSON.parse(process.argv[1]);
+    const settings = {
+      ...mcp,
+      skipDangerousModePermissionPrompt: true,
+      enabledPlugins: { 'telegram@claude-plugins-official': true }
+    };
+    require('fs').writeFileSync('$TMP_SETTINGS', JSON.stringify(settings, null, 2));
+  " "$MCP_CONFIG" && mv "$TMP_SETTINGS" "$SETTINGS_JSON"
   echo "[war-room] MCP settings.json created"
 fi
 
