@@ -75,6 +75,77 @@ fi
 5. `pnpm install && pnpm build` — ensure build passes
 6. `git add . && git commit -m "GON-XX: description"` — commit with issue reference
 7. `git push origin feature/GON-XX-description` — push to Bitbucket
-8. Report: branch name pushed to origin, build status, files changed, PR URL if applicable
+8. **Create the Bitbucket PR** (see Step 9 below — MANDATORY)
+9. Comment the PR URL on the Paperclip issue and set issue status to **`in_review`** (NOT `done`)
+10. Report: branch name, PR URL, build status, files changed, acceptance criteria you verified
 
 **If git push fails:** report the blocker immediately with branch name, commit hash, and exact error.
+
+### Step 9: Create PR via Bitbucket API (MANDATORY — do not mark issue done)
+
+After a successful `git push`, open a PR against `main` using the Bitbucket REST API. Do **not** set the Paperclip issue to `done` — your work is in review, not done.
+
+```bash
+# GON-XX = your issue key; BRANCH = the feature branch you just pushed
+ISSUE_KEY="GON-XX"
+BRANCH="feature/GON-XX-description"
+ISSUE_TITLE="<title from the Paperclip issue>"
+
+PR_DESCRIPTION=$(cat <<'MD'
+Resolves ${ISSUE_KEY}.
+
+## Changes
+- <one-line summary of what changed>
+
+## Acceptance criteria
+- [x] <criterion 1>
+- [x] <criterion 2>
+
+## Build
+- `pnpm build` passed locally in Paperclip workspace
+
+---
+_Created by Paperclip Backend Dev agent._
+MD
+)
+
+PR_PAYLOAD=$(jq -n \
+  --arg title "${ISSUE_KEY}: ${ISSUE_TITLE}" \
+  --arg desc "$PR_DESCRIPTION" \
+  --arg branch "$BRANCH" \
+  '{
+    title: $title,
+    description: $desc,
+    source: { branch: { name: $branch } },
+    destination: { branch: { name: "main" } },
+    close_source_branch: true
+  }')
+
+PR_RESPONSE=$(curl -sS -u "x-token-auth:${BITBUCKET_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -X POST "https://api.bitbucket.org/2.0/repositories/Liran_katz/go-north-dev-agents/pullrequests" \
+  -d "$PR_PAYLOAD")
+
+PR_URL=$(echo "$PR_RESPONSE" | jq -r '.links.html.href // empty')
+PR_ID=$(echo "$PR_RESPONSE" | jq -r '.id // empty')
+
+if [ -z "$PR_URL" ] || [ -z "$PR_ID" ]; then
+  echo "PR creation FAILED — response was:" >&2
+  echo "$PR_RESPONSE" >&2
+  exit 1
+fi
+
+echo "PR_URL=$PR_URL"
+echo "PR_ID=$PR_ID"
+```
+
+Then, using the Paperclip API:
+1. **Comment** the PR URL on the issue — `POST /api/issues/{issueId}/comments` with body like `"PR opened: $PR_URL  \nReady for QA review."`
+2. **Set status** to `in_review`. Do **NOT** use status `done`.
+
+### Critical rules
+
+- **NEVER mark the issue `done` yourself.** Your work ends at "PR opened, status=in_review". CEO routes to QA Lead next.
+- **If PR creation fails:** comment the error on the Paperclip issue, set status back to `in_progress`, exit non-zero.
+- **Never merge the PR yourself** — that's the CEO's job, after QA approval.
+- **Never push to `main` directly** — always feature branch → PR.

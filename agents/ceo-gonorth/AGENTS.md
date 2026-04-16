@@ -250,30 +250,87 @@ After EVERY coding delegation completes:
 ### Autonomy Rule
 If a question goes unanswered for 2 heartbeats (~20 min), and you can make a reasonable decision -- decide, act, and document the decision on the Paperclip issue.
 
-## Deployment
+## Post-Push Pipeline (AUTOMATIC — run this after any dev agent pushes)
 
-When a human asks to deploy, or after QA approves a feature:
+**This is the core of the autonomous pipeline.** When a Paperclip dev agent reports its issue is `in_review` with a PR URL in the comments, you orchestrate the full path from PR → QA → merge → deploy → live verification → announce. No human intervention required unless something fails.
 
-### Deploy Command
+**Trigger:** a Paperclip issue transitions to status `in_review` with a Bitbucket PR URL in its comments.
+
+### Phase A — Route to QA Lead
+
+1. Read the issue: get `issueId`, `prUrl`, and the PR ID (last segment of URL).
+2. PATCH the issue in Paperclip:
+   ```
+   PATCH /api/issues/{issueId}
+   { "assigneeAgentId": "a8489f81-1e3f-4d9f-b302-59222c5819d9", "status": "in_review" }
+   ```
+   (QA Lead agent ID is in `config/paperclip.md`.)
+3. Wake the QA Lead:
+   ```
+   POST /api/agents/a8489f81-1e3f-4d9f-b302-59222c5819d9/wakeup
+   { "source": "on_demand", "reason": "Run QA on PR <prUrl>" }
+   ```
+4. Post to the Telegram group: `GON-XX: dev pushed — PR: <prUrl>. Routing to QA Lead.`
+5. Monitor the QA run via `GET /api/heartbeat-runs/{runId}/log` until it finishes. Do NOT proceed until QA posts its verdict JSON.
+
+### Phase B — Merge after QA APPROVED
+
+When QA posts a verdict with `"verdict": "APPROVED"`:
+
+1. Merge the PR via the Bitbucket API (use the token, not the MCP, so failure reasons are explicit):
+   ```bash
+   curl -sS -u "x-token-auth:${BITBUCKET_TOKEN}" \
+     -H "Content-Type: application/json" \
+     -X POST "https://api.bitbucket.org/2.0/repositories/Liran_katz/go-north-dev-agents/pullrequests/${PR_ID}/merge" \
+     -d '{"merge_strategy":"merge_commit","close_source_branch":true,"message":"GON-XX: <issue title>"}'
+   ```
+2. Verify the merge landed: `GET /pullrequests/${PR_ID}` and confirm `state == "MERGED"`.
+3. Post to Telegram: `GON-XX: QA passed — merged to main. Deploying to Plesk...`
+
+If QA verdict is `REJECTED`: QA has already reassigned the issue back to the dev. You just relay the reason to Telegram (`GON-XX: QA rejected — <rejectReason>. Dev is iterating.`) and wait for the next `in_review` round.
+
+### Phase C — SSH deploy to Plesk (NOT Vercel)
+
 ```bash
 ssh -i /home/claude/.ssh/deploy_key -o StrictHostKeyChecking=no gonorthdev@34.165.203.65 \
   'cd /var/www/vhosts/gonorth.tlk.solutions/httpdocs && git pull origin main && ./deploy.sh'
 ```
 
-### Deploy Workflow
-1. **Merge PR** to main on Bitbucket (via Bitbucket MCP or git)
-2. **Run deploy** via SSH command above
-3. **Verify** via Playwright: screenshot https://gonorth.tlk.solutions and check it loads
-4. **Report** to Telegram group: what was deployed, link to live site, screenshot
+- Capture stdout + stderr.
+- If exit code ≠ 0: post the last 30 lines of output to Telegram. Do **NOT** mark the issue `done`. Check specifically for `Permission denied (publickey)` — if seen, the SSH deploy key isn't set up on Plesk yet; say so explicitly and page Liran.
+- If exit code == 0: continue to Phase D.
 
-### If SSH key is not available
-Report to the group: "Deploy is ready but I need SSH access configured. Please ask devops to add the deploy key to the Plesk server."
+### Phase D — Live verification
+
+1. Use the Playwright MCP to navigate to `https://gonorth.tlk.solutions`.
+2. Take a screenshot of the homepage **and** the page affected by the change (if different).
+3. Verify HTTP 200 and that a known page element loads (e.g., `<title>` contains expected text, or a specific heading is present).
+4. If verification fails: post a screenshot + `Deploy succeeded but live page looks broken — investigating.` Don't mark done yet.
+
+### Phase E — Mark done + announce
+
+1. Paperclip: `PATCH /api/issues/{issueId}` → `{ "status": "done" }`.
+2. Trello: move the card to "Done" and comment with PR URL + deploy URL.
+3. Telegram group message template:
+   ```
+   ✅ GON-XX LIVE
+   <one-line summary of what changed>
+
+   PR: <prUrl>
+   Live: https://gonorth.tlk.solutions
+   Screenshot: <attached>
+   ```
+
+### Legacy Manual Deploy
+
+Deploy is now **automatic** after QA approval (see Phase C above). Manual deploy is only for emergency hotfixes or when a human explicitly asks. In that case, skip Phases A/B and run only the SSH deploy command + Phase D verification.
 
 ### Important
-- NEVER deploy without QA sign-off (unless explicitly told to skip)
-- NEVER deploy if `pnpm build` is failing on the branch
-- Always verify with a Playwright screenshot after deploy
-- If deploy fails, immediately report the error to the group
+- **NEVER deploy without QA sign-off** (unless a human explicitly asks).
+- **NEVER deploy if `pnpm build` is failing** — QA's build gate catches this.
+- **Always verify with a Playwright screenshot after deploy.**
+- **If deploy fails, immediately report the error to the group** with the last 30 lines of SSH output.
+- **If SSH fails with `Permission denied (publickey)`**: the deploy key isn't configured on Plesk yet. Tell the group: "Deploy blocked — devops needs to add the war-room deploy pubkey to Plesk's `gonorthdev` authorized_keys. Fingerprint is in /home/ravi/deploy-keys/gonorth-deploy.pub on the Azure VM."
 
 ## Investor Readiness
 

@@ -32,7 +32,7 @@ You have access to these MCP tools — use them proactively:
 | Styling | Tailwind CSS v4 |
 | Backend | Supabase (auth, DB, storage) |
 | AI | OpenAI AI SDK |
-| Deployment | Vercel (auto-deploy from branches) |
+| Deployment | Plesk (Phusion Passenger + Next.js, SSH deploy via `gonorthdev@34.165.203.65` running `./deploy.sh`) |
 | Package Manager | pnpm |
 | Node | >= 22 |
 
