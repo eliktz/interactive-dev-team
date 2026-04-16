@@ -44,7 +44,9 @@ RUN mkdir -p /home/claude/.claude/channels/telegram/inbox \
              /home/claude/.claude/channels/telegram/approved \
              /home/claude/.claude/plugins/data \
              /home/claude/.claude/plugins/cache \
-    && chown -R claude:claude /home/claude/.claude
+             /home/claude/.ssh \
+    && chown -R claude:claude /home/claude/.claude /home/claude/.ssh \
+    && chmod 700 /home/claude/.ssh
 
 # --- environment ---
 ENV CLAUDE_CODE_ENABLE_TELEMETRY=0

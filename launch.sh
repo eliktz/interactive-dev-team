@@ -91,9 +91,12 @@ export PROJECT_DIR
 # --- Configure SSH deploy key (if mounted) ---
 DEPLOY_KEY="$HOME/.ssh/deploy_key"
 if [ -f "$DEPLOY_KEY" ] && [ -s "$DEPLOY_KEY" ]; then
-  mkdir -p "$HOME/.ssh"
-  chmod 700 "$HOME/.ssh"
-  chmod 600 "$DEPLOY_KEY"
+  # Dockerfile pre-creates /home/claude/.ssh owned by claude. If Docker's mount
+  # auto-created it as root instead, silently ignore the chmod (mount perms are already 700).
+  mkdir -p "$HOME/.ssh" 2>/dev/null || true
+  chmod 700 "$HOME/.ssh" 2>/dev/null || true
+  # The deploy_key is bind-mounted :ro so chmod is a no-op / may fail — that's fine
+  chmod 600 "$DEPLOY_KEY" 2>/dev/null || true
   # Create SSH config for the deploy host
   cat > "$HOME/.ssh/config" << SSHEOF
 Host deploy-plesk
