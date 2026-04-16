@@ -1,0 +1,12 @@
+{
+  "type": "EFFECT_RESOLVED",
+  "recordedAt": "2026-04-11T15:19:37.139Z",
+  "data": {
+    "effectId": "01KNYHWDHHGRSP3262SK7PSEVN",
+    "status": "ok",
+    "resultRef": "tasks/01KNYHWDHHGRSP3262SK7PSEVN/result.json",
+    "startedAt": "2026-04-11T15:19:37.116Z",
+    "finishedAt": "2026-04-11T15:19:37.116Z"
+  },
+  "checksum": "f8bb0d81e0a1f73fb49d6eb42f0b893c29997f7baa4fbd56e4ac82dfab02d26c"
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "2026.01.results-v1",
+  "effectId": "01KNYJ6MEXERAEGM3YKCJEW3FK",
+  "taskId": "__sdk.breakpoint",
+  "invocationKey": "paperclip-agent-personality-fix:S000004:__sdk.breakpoint",
+  "status": "ok",
+  "result": {
+    "approved": true,
+    "response": "Option A: Volume-mount + instructionsFilePath (Recommended)"
+  },
+  "startedAt": "2026-04-11T15:52:06.131Z",
+  "finishedAt": "2026-04-11T15:52:06.131Z",
+  "value": {
+    "approved": true,
+    "response": "Option A: Volume-mount + instructionsFilePath (Recommended)"
+  }
+}

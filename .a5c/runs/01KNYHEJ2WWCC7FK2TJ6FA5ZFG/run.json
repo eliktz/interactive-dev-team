@@ -1,0 +1,14 @@
+{
+  "runId": "01KNYHEJ2WWCC7FK2TJ6FA5ZFG",
+  "request": "paperclip-agent-personality-fix",
+  "processId": "paperclip-agent-personality-fix",
+  "entrypoint": {
+    "importPath": "../../processes/paperclip-agent-personality-fix.js",
+    "exportName": "process"
+  },
+  "processPath": "../../processes/paperclip-agent-personality-fix.js",
+  "layoutVersion": "2026.01-storage-preview",
+  "createdAt": "2026-04-11T15:09:31.118Z",
+  "prompt": "Investigate why all Paperclip agents have the same personality despite unique AGENTS.md files. Validate the gap, identify flaws in setup.sh, propose fix options, implement the approved fix, and verify it is reproducible for first-time deployers.",
+  "completionProof": "5ae2d41397501d7c2dd72f23a2f61369"
+}

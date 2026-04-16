@@ -60,7 +60,41 @@ eval $PAPERCLIP_CURL http://paperclip:3100/api/agents/{agentId}
 | UX Designer (Hedva) | 0fef41ec-014f-4c14-ac6f-5041b1a44961 | claude-sonnet-4-6 |
 
 ## Issue Workflow
-1. Issue created → status: `backlog`
-2. Assigned to agent + status set to `todo` → Paperclip spawns Claude agent
-3. Agent executes → status: `in_progress`
-4. Agent completes → status: `done`
+
+**CRITICAL:** Assigning an issue does NOT start the agent. You MUST explicitly wake the agent after assignment.
+
+1. **Create issue** via `POST /api/companies/{companyId}/issues` → status: `backlog`
+2. **Assign agent** via `PATCH /api/issues/{issueId}` with `assigneeAgentId` + `status: "todo"`
+3. **WAKE THE AGENT** via `POST /api/agents/{agentId}/wakeup` ← **DON'T FORGET THIS**
+   ```bash
+   eval $PAPERCLIP_CURL -X POST http://paperclip:3100/api/agents/{agentId}/wakeup \
+     -H "Content-Type: application/json" \
+     -d '{"source":"on_demand","reason":"Pick up GON-XX"}'
+   ```
+   Response includes `id` (runId) and `status: "queued"`. Agent starts shortly after.
+4. **Monitor run** via `GET /api/heartbeat-runs/{runId}` and `GET /api/heartbeat-runs/{runId}/log?offset=0&limitBytes=100000`
+5. Agent runs → issue status: `in_progress`
+6. Agent completes + pushes code → issue status: `done`
+
+### Monitoring an agent run
+
+```bash
+# Check if agent is running
+eval $PAPERCLIP_CURL http://paperclip:3100/api/agents/{agentId} | jq '{status, spentMonthlyCents}'
+
+# Get all active runs for this company
+eval $PAPERCLIP_CURL http://paperclip:3100/api/companies/a951bb35-24a9-412a-bbcc-629c5acae619/live-runs
+
+# Tail agent logs
+eval $PAPERCLIP_CURL "http://paperclip:3100/api/heartbeat-runs/{runId}/log?offset=0&limitBytes=100000" | tail -c 3000
+
+# Get run status + exit code
+eval $PAPERCLIP_CURL http://paperclip:3100/api/heartbeat-runs/{runId} | jq '{status, exitCode, error}'
+```
+
+### Scheduling periodic wakeups (for CEO monitoring)
+
+Use CronCreate at session start to poll every 5 minutes:
+```
+CronCreate: "*/5 * * * *" → "check all live-runs in Paperclip + report blocked/done issues to Telegram group"
+```

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNZ5SZNVFXZY4VTKV0JW6NEE",
+  "taskId": "__sdk.breakpoint",
+  "invocationKey": "agent-tooling-setup:S000004:__sdk.breakpoint",
+  "stepId": "S000004",
+  "kind": "breakpoint",
+  "title": "breakpoint",
+  "metadata": {
+    "label": "breakpoint",
+    "payload": {
+      "context": {},
+      "question": "All changes applied:\n- Playwright MCP: Added Playwright MCP service (mcr.microsoft.com/playwright/mcp, port 8931, headless chromium). Added as war-room dependency. Created config/mcp-settings.json. Updated launch.sh to merge MCP config on startup. Updated Dockerfile to copy config/.\n- Bitbucket MCP: Replaced static MCP config with dynamic generation in launch.sh. Playwright always included, Bitbucket conditionally added when env vars present. Added BITBUCKET_USERNAME/PASSWORD/URL to docker-compose.yml and .env.example.\n- Figma removal: 5 files updated\n\nReview and approve to proceed with verification.",
+      "title": "Agent Tooling — Review Changes"
+    },
+    "requestedAt": "2026-04-11T21:05:16.987Z"
+  },
+  "inputs": {
+    "label": "breakpoint",
+    "payload": {
+      "context": {},
+      "question": "All changes applied:\n- Playwright MCP: Added Playwright MCP service (mcr.microsoft.com/playwright/mcp, port 8931, headless chromium). Added as war-room dependency. Created config/mcp-settings.json. Updated launch.sh to merge MCP config on startup. Updated Dockerfile to copy config/.\n- Bitbucket MCP: Replaced static MCP config with dynamic generation in launch.sh. Playwright always included, Bitbucket conditionally added when env vars present. Added BITBUCKET_USERNAME/PASSWORD/URL to docker-compose.yml and .env.example.\n- Figma removal: 5 files updated\n\nReview and approve to proceed with verification.",
+      "title": "Agent Tooling — Review Changes"
+    },
+    "requestedAt": "2026-04-11T21:05:16.987Z"
+  }
+}

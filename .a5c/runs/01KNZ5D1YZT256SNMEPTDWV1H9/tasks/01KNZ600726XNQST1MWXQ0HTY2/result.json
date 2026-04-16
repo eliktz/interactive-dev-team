@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "2026.01.results-v1",
+  "effectId": "01KNZ600726XNQST1MWXQ0HTY2",
+  "taskId": "verify-changes",
+  "invocationKey": "agent-tooling-setup:S000005:verify-changes",
+  "status": "ok",
+  "result": {
+    "issues": [],
+    "verified": true
+  },
+  "startedAt": "2026-04-11T21:10:16.582Z",
+  "finishedAt": "2026-04-11T21:10:16.582Z",
+  "value": {
+    "issues": [],
+    "verified": true
+  }
+}

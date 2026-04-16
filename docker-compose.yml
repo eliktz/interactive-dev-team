@@ -89,6 +89,11 @@ services:
       # Git credentials for Paperclip agents to push code
       BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
       GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
+      # Git identity for agent commits
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Paperclip Agent}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@gonorth.ai}
+      GIT_COMMITTER_NAME: ${GIT_AUTHOR_NAME:-Paperclip Agent}
+      GIT_COMMITTER_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@gonorth.ai}
     volumes:
       - paperclip-data:/paperclip
       - ./companies:/paperclip/companies:ro

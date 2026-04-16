@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNZ600726XNQST1MWXQ0HTY2",
+  "taskId": "verify-changes",
+  "invocationKey": "agent-tooling-setup:S000005:verify-changes",
+  "stepId": "S000005",
+  "kind": "agent",
+  "title": "Verify all tooling changes",
+  "description": "Review all modifications for correctness",
+  "labels": [
+    "qa",
+    "verification"
+  ],
+  "io": {
+    "inputJsonPath": "tasks/01KNZ600726XNQST1MWXQ0HTY2/input.json",
+    "outputJsonPath": "tasks/01KNZ600726XNQST1MWXQ0HTY2/result.json"
+  },
+  "inputs": {
+    "bitbucketResult": {
+      "filesModified": [
+        "launch.sh",
+        "docker-compose.yml",
+        ".env.example"
+      ],
+      "summary": "Replaced static MCP config with dynamic generation in launch.sh. Playwright always included, Bitbucket conditionally added when env vars present. Added BITBUCKET_USERNAME/PASSWORD/URL to docker-compose.yml and .env.example."
+    },
+    "figmaResult": {
+      "changesSummary": "Removed all 18 Figma references across 5 files. Replaced with browser-based visual review (Playwright MCP) and markdown design specs. All roles preserved, only tool dependency changed.",
+      "filesModified": [
+        "agents/captain/CLAUDE.md",
+        "agents/ceo-gonorth/CLAUDE.md",
+        "agents/ux-gonorth/CLAUDE.md",
+        "companies/go-north/agents/frontend-dev/AGENTS.md",
+        "companies/go-north/agents/ux-designer/AGENTS.md"
+      ]
+    },
+    "playwrightResult": {
+      "dockerComposeChanges": "Added playwright service before volumes section. Added playwright dependency to war-room.",
+      "filesModified": [
+        "docker-compose.yml",
+        "launch.sh",
+        "Dockerfile",
+        "config/mcp-settings.json"
+      ],
+      "summary": "Added Playwright MCP service (mcr.microsoft.com/playwright/mcp, port 8931, headless chromium). Added as war-room dependency. Created config/mcp-settings.json. Updated launch.sh to merge MCP config on startup. Updated Dockerfile to copy config/."
+    },
+    "projectDir": "."
+  }
+}

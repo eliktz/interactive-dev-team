@@ -1,0 +1,19 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T15:09:58.321Z",
+  "data": {
+    "effectId": "01KNYHFCMYSJRTR9H51NKEA50Q",
+    "invocationKey": "paperclip-agent-personality-fix:S000001:validate-agent-files",
+    "invocationHash": "10eb4794aa76d3e23be43241ddb5100e61ec320e83252cac0278f70ead8b4336",
+    "stepId": "S000001",
+    "taskId": "validate-agent-files",
+    "kind": "agent",
+    "label": "investigation",
+    "taskDefRef": "tasks/01KNYHFCMYSJRTR9H51NKEA50Q/task.json",
+    "labels": [
+      "investigation",
+      "validation"
+    ]
+  },
+  "checksum": "a0c9e62d1c124eb01557c1ed986a597ecd7256450f350aa025255880b94d4b5e"
+}

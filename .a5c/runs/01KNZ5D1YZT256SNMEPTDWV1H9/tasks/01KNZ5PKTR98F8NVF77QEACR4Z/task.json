@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNZ5PKTR98F8NVF77QEACR4Z",
+  "taskId": "remove-figma-refs",
+  "invocationKey": "agent-tooling-setup:S000003:remove-figma-refs",
+  "stepId": "S000003",
+  "kind": "agent",
+  "title": "Remove Figma references from all agent files",
+  "description": "Remove Figma MCP references and update agent roles to not depend on Figma",
+  "labels": [
+    "agents",
+    "cleanup",
+    "figma"
+  ],
+  "io": {
+    "inputJsonPath": "tasks/01KNZ5PKTR98F8NVF77QEACR4Z/input.json",
+    "outputJsonPath": "tasks/01KNZ5PKTR98F8NVF77QEACR4Z/result.json"
+  },
+  "inputs": {
+    "projectDir": "."
+  }
+}

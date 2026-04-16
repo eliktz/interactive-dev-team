@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNZ5KMYRGWDW67PXMXP46FRF",
+  "taskId": "add-bitbucket-mcp",
+  "invocationKey": "agent-tooling-setup:S000002:add-bitbucket-mcp",
+  "stepId": "S000002",
+  "kind": "agent",
+  "title": "Add Bitbucket Cloud MCP configuration",
+  "description": "Configure bitbucket-mcp for Bitbucket Cloud access",
+  "labels": [
+    "bitbucket",
+    "devops",
+    "mcp"
+  ],
+  "io": {
+    "inputJsonPath": "tasks/01KNZ5KMYRGWDW67PXMXP46FRF/input.json",
+    "outputJsonPath": "tasks/01KNZ5KMYRGWDW67PXMXP46FRF/result.json"
+  },
+  "inputs": {
+    "projectDir": "."
+  }
+}

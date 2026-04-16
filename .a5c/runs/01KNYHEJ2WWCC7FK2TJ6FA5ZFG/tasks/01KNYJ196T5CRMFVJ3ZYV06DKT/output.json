@@ -1,0 +1,30 @@
+{
+  "options": [
+    {
+      "id": "A",
+      "title": "Volume-mount + instructionsFilePath",
+      "description": "Mount companies/go-north/agents into Paperclip container, set instructionsFilePath in adapterConfig per agent. Paperclip reads AGENTS.md at runtime via its native instructions bundle system.",
+      "filesModified": ["docker-compose.yml", "scripts/setup.sh", "companies/go-north/.paperclip.yaml"],
+      "pros": ["Uses Paperclip native system", "AGENTS.md stays single source of truth", "No content duplication", "Fixes F1,F2,F3,F7 in one shot", "Minimal code change ~20 lines"],
+      "cons": ["Requires companies/ dir at compose startup", "Hardcoded container paths", "Doesn't fix F4 (setup.sh still has hardcoded defs)"]
+    },
+    {
+      "id": "B",
+      "title": "Paperclip company import CLI",
+      "description": "Replace manual registration with single 'paperclip import companies/go-north' CLI call. Discovers AGENTS.md by convention, applies .paperclip.yaml.",
+      "filesModified": ["docker-compose.yml", "scripts/setup.sh", "companies/go-north/.paperclip.yaml"],
+      "pros": ["Eliminates ~80 lines of bash", "Fixes all 8 flaws", ".paperclip.yaml becomes true single source of truth", "Adding agents = just add directory"],
+      "cons": ["CLI command unverified — may not exist yet", "Idempotency unknown", "Highest risk — depends on unverified functionality"]
+    },
+    {
+      "id": "C",
+      "title": "API upload at setup time",
+      "description": "Read AGENTS.md content during setup, push via Paperclip API (capabilities field + instructions bundle upload). No volume mounts needed.",
+      "filesModified": ["scripts/setup.sh", "companies/go-north/.paperclip.yaml"],
+      "pros": ["No Docker volume changes", "Works in restricted environments", "Content persists in Paperclip storage"],
+      "cons": ["Personality duplicated (files AND Paperclip storage)", "setup.sh becomes complex (YAML parsing, multi-step API)", "Edits to AGENTS.md require re-running setup"]
+    }
+  ],
+  "recommendedFix": "A",
+  "breakpointQuestion": "Which approach for fixing Paperclip agent personalities? Option A (recommended): volume-mount + instructionsFilePath — minimal changes, native Paperclip mechanism. Option B: CLI import — cleanest but unverified. Option C: API upload — no volume mounts but duplicates content."
+}

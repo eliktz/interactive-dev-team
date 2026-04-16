@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNYHFCMYSJRTR9H51NKEA50Q",
+  "taskId": "validate-agent-files",
+  "invocationKey": "paperclip-agent-personality-fix:S000001:validate-agent-files",
+  "stepId": "S000001",
+  "kind": "agent",
+  "title": "Validate AGENTS.md files vs Paperclip registration",
+  "description": "Compare what each AGENTS.md defines vs what setup.sh sends to Paperclip API",
+  "labels": [
+    "investigation",
+    "validation"
+  ],
+  "io": {
+    "inputJsonPath": "tasks/01KNYHFCMYSJRTR9H51NKEA50Q/input.json",
+    "outputJsonPath": "tasks/01KNYHFCMYSJRTR9H51NKEA50Q/result.json"
+  },
+  "inputs": {
+    "projectDir": "/Users/elik.k/git/interactive-dev-team"
+  }
+}

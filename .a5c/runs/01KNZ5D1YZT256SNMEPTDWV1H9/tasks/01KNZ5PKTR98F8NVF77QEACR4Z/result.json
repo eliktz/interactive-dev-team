@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "2026.01.results-v1",
+  "effectId": "01KNZ5PKTR98F8NVF77QEACR4Z",
+  "taskId": "remove-figma-refs",
+  "invocationKey": "agent-tooling-setup:S000003:remove-figma-refs",
+  "status": "ok",
+  "result": {
+    "changesSummary": "Removed all 18 Figma references across 5 files. Replaced with browser-based visual review (Playwright MCP) and markdown design specs. All roles preserved, only tool dependency changed.",
+    "filesModified": [
+      "agents/captain/CLAUDE.md",
+      "agents/ceo-gonorth/CLAUDE.md",
+      "agents/ux-gonorth/CLAUDE.md",
+      "companies/go-north/agents/frontend-dev/AGENTS.md",
+      "companies/go-north/agents/ux-designer/AGENTS.md"
+    ]
+  },
+  "startedAt": "2026-04-11T21:05:04.627Z",
+  "finishedAt": "2026-04-11T21:05:04.627Z",
+  "value": {
+    "changesSummary": "Removed all 18 Figma references across 5 files. Replaced with browser-based visual review (Playwright MCP) and markdown design specs. All roles preserved, only tool dependency changed.",
+    "filesModified": [
+      "agents/captain/CLAUDE.md",
+      "agents/ceo-gonorth/CLAUDE.md",
+      "agents/ux-gonorth/CLAUDE.md",
+      "companies/go-north/agents/frontend-dev/AGENTS.md",
+      "companies/go-north/agents/ux-designer/AGENTS.md"
+    ]
+  }
+}

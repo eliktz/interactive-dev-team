@@ -1,0 +1,18 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T15:22:39.989Z",
+  "data": {
+    "effectId": "01KNYJ6MEXERAEGM3YKCJEW3FK",
+    "invocationKey": "paperclip-agent-personality-fix:S000004:__sdk.breakpoint",
+    "invocationHash": "ab6a25499a718600a238088b3209c6f85d5ece24a10f66d8dd74b1a7c2319efb",
+    "stepId": "S000004",
+    "taskId": "__sdk.breakpoint",
+    "kind": "breakpoint",
+    "label": "breakpoint",
+    "taskDefRef": "tasks/01KNYJ6MEXERAEGM3YKCJEW3FK/task.json",
+    "labels": [
+      "breakpoint"
+    ]
+  },
+  "checksum": "9230ac73d83faa1f27bfa4bb889fac6b5bffd0f63251835125f52e2135a6da3d"
+}

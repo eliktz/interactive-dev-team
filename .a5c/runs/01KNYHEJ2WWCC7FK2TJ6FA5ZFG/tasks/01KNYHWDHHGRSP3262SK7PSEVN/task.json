@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNYHWDHHGRSP3262SK7PSEVN",
+  "taskId": "identify-flaws",
+  "invocationKey": "paperclip-agent-personality-fix:S000002:identify-flaws",
+  "stepId": "S000002",
+  "kind": "agent",
+  "title": "Identify flaws in agent setup process",
+  "description": "Analyze the complete pipeline from AGENTS.md to deployed Paperclip agent and identify all gaps",
+  "labels": [
+    "analysis",
+    "investigation"
+  ],
+  "io": {
+    "inputJsonPath": "tasks/01KNYHWDHHGRSP3262SK7PSEVN/input.json",
+    "outputJsonPath": "tasks/01KNYHWDHHGRSP3262SK7PSEVN/result.json"
+  },
+  "inputs": {
+    "projectDir": "/Users/elik.k/git/interactive-dev-team",
+    "validationReport": {
+      "agents": [
+        {
+          "apiPayloadHasPersonality": false,
+          "gap": "AGENTS.md defines Go-North PM with backlog management, user story structure rules, Hebrew-first copy, stakeholder translation, sprint planning, and cross-agent coordination. API payload sends only name/role/model.",
+          "hasUniquePersonality": true,
+          "slug": "product-manager"
+        },
+        {
+          "apiPayloadHasPersonality": false,
+          "gap": "AGENTS.md defines budget tracker with USD+ILS reporting, LLM token cost analysis, $0.50 threshold, weekly cost ledger. API payload sends only name/role/model.",
+          "hasUniquePersonality": true,
+          "slug": "finance-officer"
+        },
+        {
+          "apiPayloadHasPersonality": false,
+          "gap": "AGENTS.md defines Next.js/React/Tailwind developer with RTL support, mobile-first, UX review gate. API payload sends only name/role/model.",
+          "hasUniquePersonality": true,
+          "slug": "frontend-dev"
+        },
+        {
+          "apiPayloadHasPersonality": false,
+          "gap": "AGENTS.md defines Supabase/Postgres developer with RLS policies, centralized prompt registry, LLM call logging. API payload sends only name/role/model.",
+          "hasUniquePersonality": true,
+          "slug": "backend-dev"
+        },
+        {
+          "apiPayloadHasPersonality": false,
+          "gap": "AGENTS.md defines QA gatekeeper with deploy sign-off, Playwright E2E, visual regression, real mobile viewport testing. API payload sends only name/role/model.",
+          "hasUniquePersonality": true,
+          "slug": "qa-lead"
+        },
+        {
+          "apiPayloadHasPersonality": false,
+          "gap": "AGENTS.md defines Figma-native designer with mobile-first mandate, real Hebrew content, single Figma source of truth. API payload sends only name/role/model.",
+          "hasUniquePersonality": true,
+          "slug": "ux-designer"
+        }
+      ],
+      "reportPath": "validation-report.md",
+      "summary": "All 6 AGENTS.md files contain rich, unique personality definitions (role context, capabilities, behavior rules, tech stack, collaboration requirements) specific to Go-North. However, setup.sh sends only structural metadata (name, role, title, adapterType, model) to the Paperclip API -- zero personality content is included. The Paperclip API fully supports injecting personality via adapterConfig.instructionsFilePath, adapterConfig.instructionsRootPath, or the capabilities field, but setup.sh uses none of these. When agents are created without instructions config, Paperclip auto-generates a generic default AGENTS.md from built-in onboarding assets, not from the project's custom files. The .paperclip.yaml file also lacks instructions configuration and is not consumed by setup.sh at all."
+    }
+  }
+}

@@ -108,13 +108,19 @@ Before any feature is considered complete:
 
 ALL coding work MUST go through structured babysitter processes. No ad-hoc code execution.
 
-### Step 1: Create Paperclip Issue
-Before ANY coding delegation, create a Paperclip issue with:
-- Clear title and description
-- Acceptance criteria (testable, specific)
-- Assigned agent (Frontend Dev or Backend Dev)
-- Design specs from Hedva in markdown (if UI change)
-- List of affected files/components
+### Step 1: Create + Assign + WAKE Paperclip agent
+
+**CRITICAL:** Paperclip does NOT auto-start agents. You MUST do all 3:
+
+1. **Create issue** with:
+   - Clear title and description
+   - Acceptance criteria (testable, specific)
+   - Design specs from UX (if UI change)
+   - List of affected files/components
+2. **Assign to agent** via PATCH (Frontend Dev or Backend Dev)
+3. **WAKE the agent** via `POST /api/agents/{agentId}/wakeup` — see `config/paperclip.md` for exact command. **Forgetting this means the agent stays idle forever.**
+
+After wakeup, monitor via `/api/heartbeat-runs/{runId}/log` until the run finishes.
 
 ### Step 2: Delegate via LLM Escalation Ladder
 

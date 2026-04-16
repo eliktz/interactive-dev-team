@@ -1,0 +1,9 @@
+{
+  "verified": true,
+  "issues": [],
+  "recommendations": [
+    "Add pre-flight check for AGENTS.md existence before registering agents",
+    "Reduce .paperclip.yaml duplication by relying on adapter_defaults for sonnet model",
+    "Add 'check_cmd python3' to prerequisites section in setup.sh"
+  ]
+}

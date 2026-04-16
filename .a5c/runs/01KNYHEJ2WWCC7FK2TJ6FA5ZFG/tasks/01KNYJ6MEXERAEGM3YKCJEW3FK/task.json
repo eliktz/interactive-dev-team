@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNYJ6MEXERAEGM3YKCJEW3FK",
+  "taskId": "__sdk.breakpoint",
+  "invocationKey": "paperclip-agent-personality-fix:S000004:__sdk.breakpoint",
+  "stepId": "S000004",
+  "kind": "breakpoint",
+  "title": "breakpoint",
+  "metadata": {
+    "label": "breakpoint",
+    "payload": {
+      "context": {
+        "flawsSummary": "8 distinct flaws cause agents to lose 100% of their personality. Root problem: multi-layered disconnect — setup.sh hardcodes bare metadata without reading personality files, .paperclip.yaml is declared but never consumed, Paperclip API personality mechanisms (instructionsFilePath, capabilities, reportsTo) are unused, Docker image doesn't mount AGENTS.md files, and auto-materialization overwrites custom personalities with generic defaults.",
+        "proposedFixes": [
+          {
+            "cons": [
+              "Requires companies/ dir at compose startup",
+              "Hardcoded container paths",
+              "Doesn't fix F4 (setup.sh still has hardcoded defs)"
+            ],
+            "description": "Mount companies/go-north/agents into Paperclip container, set instructionsFilePath in adapterConfig per agent. Paperclip reads AGENTS.md at runtime via its native instructions bundle system.",
+            "filesModified": [
+              "docker-compose.yml",
+              "scripts/setup.sh",
+              "companies/go-north/.paperclip.yaml"
+            ],
+            "id": "A",
+            "pros": [
+              "Uses Paperclip native system",
+              "AGENTS.md stays single source of truth",
+              "No content duplication",
+              "Fixes F1,F2,F3,F7 in one shot",
+              "Minimal code change ~20 lines"
+            ],
+            "title": "Volume-mount + instructionsFilePath"
+          },
+          {
+            "cons": [
+              "CLI command unverified — may not exist yet",
+              "Idempotency unknown",
+              "Highest risk — depends on unverified functionality"
+            ],
+            "description": "Replace manual registration with single 'paperclip import companies/go-north' CLI call. Discovers AGENTS.md by convention, applies .paperclip.yaml.",
+            "filesModified": [
+              "docker-compose.yml",
+              "scripts/setup.sh",
+              "companies/go-north/.paperclip.yaml"
+            ],
+            "id": "B",
+            "pros": [
+              "Eliminates ~80 lines of bash",
+              "Fixes all 8 flaws",
+              ".paperclip.yaml becomes true single source of truth",
+              "Adding agents = just add directory"
+            ],
+            "title": "Paperclip company import CLI"
+          },
+          {
+            "cons": [
+              "Personality duplicated (files AND Paperclip storage)",
+              "setup.sh becomes complex (YAML parsing, multi-step API)",
+              "Edits to AGENTS.md require re-running setup"
+            ],
+            "description": "Read AGENTS.md content during setup, push via Paperclip API (capabilities field + instructions bundle upload). No volume mounts needed.",
+            "filesModified": [
+              "scripts/setup.sh",
+              "companies/go-north/.paperclip.yaml"
+            ],
+            "id": "C",
+            "pros": [
+              "No Docker volume changes",
+              "Works in restricted environments",
+              "Content persists in Paperclip storage"
+            ],
+            "title": "API upload at setup time"
+          }
+        ],
+        "validationSummary": "All 6 AGENTS.md files contain rich, unique personality definitions (role context, capabilities, behavior rules, tech stack, collaboration requirements) specific to Go-North. However, setup.sh sends only structural metadata (name, role, title, adapterType, model) to the Paperclip API -- zero personality content is included. The Paperclip API fully supports injecting personality via adapterConfig.instructionsFilePath, adapterConfig.instructionsRootPath, or the capabilities field, but setup.sh uses none of these. When agents are created without instructions config, Paperclip auto-generates a generic default AGENTS.md from built-in onboarding assets, not from the project's custom files. The .paperclip.yaml file also lacks instructions configuration and is not consumed by setup.sh at all."
+      },
+      "question": "Which approach for fixing Paperclip agent personalities? Option A (recommended): volume-mount + instructionsFilePath — minimal changes, native Paperclip mechanism. Option B: CLI import — cleanest but unverified. Option C: API upload — no volume mounts but duplicates content.",
+      "title": "Paperclip Agent Personality Fix — Approve Approach"
+    },
+    "requestedAt": "2026-04-11T15:22:39.965Z"
+  },
+  "inputs": {
+    "label": "breakpoint",
+    "payload": {
+      "context": {
+        "flawsSummary": "8 distinct flaws cause agents to lose 100% of their personality. Root problem: multi-layered disconnect — setup.sh hardcodes bare metadata without reading personality files, .paperclip.yaml is declared but never consumed, Paperclip API personality mechanisms (instructionsFilePath, capabilities, reportsTo) are unused, Docker image doesn't mount AGENTS.md files, and auto-materialization overwrites custom personalities with generic defaults.",
+        "proposedFixes": [
+          {
+            "cons": [
+              "Requires companies/ dir at compose startup",
+              "Hardcoded container paths",
+              "Doesn't fix F4 (setup.sh still has hardcoded defs)"
+            ],
+            "description": "Mount companies/go-north/agents into Paperclip container, set instructionsFilePath in adapterConfig per agent. Paperclip reads AGENTS.md at runtime via its native instructions bundle system.",
+            "filesModified": [
+              "docker-compose.yml",
+              "scripts/setup.sh",
+              "companies/go-north/.paperclip.yaml"
+            ],
+            "id": "A",
+            "pros": [
+              "Uses Paperclip native system",
+              "AGENTS.md stays single source of truth",
+              "No content duplication",
+              "Fixes F1,F2,F3,F7 in one shot",
+              "Minimal code change ~20 lines"
+            ],
+            "title": "Volume-mount + instructionsFilePath"
+          },
+          {
+            "cons": [
+              "CLI command unverified — may not exist yet",
+              "Idempotency unknown",
+              "Highest risk — depends on unverified functionality"
+            ],
+            "description": "Replace manual registration with single 'paperclip import companies/go-north' CLI call. Discovers AGENTS.md by convention, applies .paperclip.yaml.",
+            "filesModified": [
+              "docker-compose.yml",
+              "scripts/setup.sh",
+              "companies/go-north/.paperclip.yaml"
+            ],
+            "id": "B",
+            "pros": [
+              "Eliminates ~80 lines of bash",
+              "Fixes all 8 flaws",
+              ".paperclip.yaml becomes true single source of truth",
+              "Adding agents = just add directory"
+            ],
+            "title": "Paperclip company import CLI"
+          },
+          {
+            "cons": [
+              "Personality duplicated (files AND Paperclip storage)",
+              "setup.sh becomes complex (YAML parsing, multi-step API)",
+              "Edits to AGENTS.md require re-running setup"
+            ],
+            "description": "Read AGENTS.md content during setup, push via Paperclip API (capabilities field + instructions bundle upload). No volume mounts needed.",
+            "filesModified": [
+              "scripts/setup.sh",
+              "companies/go-north/.paperclip.yaml"
+            ],
+            "id": "C",
+            "pros": [
+              "No Docker volume changes",
+              "Works in restricted environments",
+              "Content persists in Paperclip storage"
+            ],
+            "title": "API upload at setup time"
+          }
+        ],
+        "validationSummary": "All 6 AGENTS.md files contain rich, unique personality definitions (role context, capabilities, behavior rules, tech stack, collaboration requirements) specific to Go-North. However, setup.sh sends only structural metadata (name, role, title, adapterType, model) to the Paperclip API -- zero personality content is included. The Paperclip API fully supports injecting personality via adapterConfig.instructionsFilePath, adapterConfig.instructionsRootPath, or the capabilities field, but setup.sh uses none of these. When agents are created without instructions config, Paperclip auto-generates a generic default AGENTS.md from built-in onboarding assets, not from the project's custom files. The .paperclip.yaml file also lacks instructions configuration and is not consumed by setup.sh at all."
+      },
+      "question": "Which approach for fixing Paperclip agent personalities? Option A (recommended): volume-mount + instructionsFilePath — minimal changes, native Paperclip mechanism. Option B: CLI import — cleanest but unverified. Option C: API upload — no volume mounts but duplicates content.",
+      "title": "Paperclip Agent Personality Fix — Approve Approach"
+    },
+    "requestedAt": "2026-04-11T15:22:39.965Z"
+  }
+}

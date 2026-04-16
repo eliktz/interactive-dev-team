@@ -1,0 +1,19 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T15:55:24.471Z",
+  "data": {
+    "effectId": "01KNYM2JX7W6Z9W9201HSDCAGC",
+    "invocationKey": "paperclip-agent-personality-fix:S000006:verify-fix",
+    "invocationHash": "7854f6651660103f590961a82f2a30717cfadaf29550fe2bee41838186cf6bb1",
+    "stepId": "S000006",
+    "taskId": "verify-fix",
+    "kind": "agent",
+    "label": "verification",
+    "taskDefRef": "tasks/01KNYM2JX7W6Z9W9201HSDCAGC/task.json",
+    "labels": [
+      "verification",
+      "qa"
+    ]
+  },
+  "checksum": "220d1066521c42fccee621b4abb978c650c05c39dfe80098c811736953bbf655"
+}

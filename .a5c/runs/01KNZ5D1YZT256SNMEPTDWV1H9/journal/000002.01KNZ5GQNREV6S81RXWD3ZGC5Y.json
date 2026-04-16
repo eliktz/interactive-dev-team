@@ -1,0 +1,20 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T21:00:13.880Z",
+  "data": {
+    "effectId": "01KNZ5GQN7NGXM67ZJ2PMQTCD8",
+    "invocationKey": "agent-tooling-setup:S000001:add-playwright-mcp",
+    "invocationHash": "513b6f347864e4a1d7151d5ef7d64d7e0734b6e4f282d6f788c67742f7b75cda",
+    "stepId": "S000001",
+    "taskId": "add-playwright-mcp",
+    "kind": "agent",
+    "label": "devops",
+    "taskDefRef": "tasks/01KNZ5GQN7NGXM67ZJ2PMQTCD8/task.json",
+    "labels": [
+      "devops",
+      "playwright",
+      "mcp"
+    ]
+  },
+  "checksum": "15b0877c58f76b2545fad9e865d9b550cc49355c02b1276a54487016b3fb7d7f"
+}

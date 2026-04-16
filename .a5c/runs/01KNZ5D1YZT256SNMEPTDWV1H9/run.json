@@ -1,0 +1,14 @@
+{
+  "runId": "01KNZ5D1YZT256SNMEPTDWV1H9",
+  "request": "agent-tooling-setup",
+  "processId": "agent-tooling-setup",
+  "entrypoint": {
+    "importPath": "../../processes/agent-tooling-setup.js",
+    "exportName": "process"
+  },
+  "processPath": "../../processes/agent-tooling-setup.js",
+  "layoutVersion": "2026.01-storage-preview",
+  "createdAt": "2026-04-11T20:58:13.356Z",
+  "prompt": "Add Playwright MCP browser service, Bitbucket Cloud MCP, and remove Figma references from all agent files",
+  "completionProof": "b7d2a33313f10c45190e96b963e4458a"
+}

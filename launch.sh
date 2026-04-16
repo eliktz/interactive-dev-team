@@ -299,7 +299,23 @@ for agent_def in "${AGENTS[@]}"; do
 #!/usr/bin/env bash
 # Auto-generated start script for agent: ${name}
 # Run this to restart the agent with the correct flags.
-cd /workspace/agents/${name}
+#
+# SAFETY: refuses to start if another claude is already running in this agent's dir.
+# This prevents the duplicate-process Telegram bot conflict that happened 2026-04-16.
+AGENT_DIR=/workspace/agents/${name}
+EXISTING=\$(pgrep -f "claude" -a 2>/dev/null | awk -v d="\$AGENT_DIR" '\$0 ~ d {print \$1}' | head -1)
+if [ -n "\$EXISTING" ] && [ "\$EXISTING" != "\$\$" ]; then
+  # Check if the existing claude has this dir as CWD
+  for pid in \$(pgrep -x claude 2>/dev/null); do
+    pid_cwd=\$(readlink /proc/\$pid/cwd 2>/dev/null)
+    if [ "\$pid_cwd" = "\$AGENT_DIR" ]; then
+      echo "[${name}] REFUSED: Claude is already running as PID \$pid in \$AGENT_DIR."
+      echo "[${name}] To force restart: kill \$pid (start.sh loop will respawn it)."
+      exit 1
+    fi
+  done
+fi
+cd "\$AGENT_DIR"
 export TELEGRAM_STATE_DIR=${state_dir}
 while true; do
   echo "[${name}] Starting Claude Code (model: ${model})..."

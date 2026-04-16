@@ -1,0 +1,13 @@
+{
+  "summary": "8 distinct flaws cause agents to lose 100% of their personality. Root problem: multi-layered disconnect — setup.sh hardcodes bare metadata without reading personality files, .paperclip.yaml is declared but never consumed, Paperclip API personality mechanisms (instructionsFilePath, capabilities, reportsTo) are unused, Docker image doesn't mount AGENTS.md files, and auto-materialization overwrites custom personalities with generic defaults.",
+  "flaws": [
+    {"id": "F1", "title": "setup.sh sends zero personality content in agent registration", "rootCause": "AGENT_DEFS hardcodes only name/role/title/model, never reads AGENTS.md files", "impact": "All 6 agents are personality-less shells", "severity": "critical"},
+    {"id": "F2", "title": "instructionsFilePath/instructionsRootPath not set", "rootCause": "adapterConfig contains only model and dangerouslySkipPermissions, not file paths", "impact": "Claude adapter cannot inject personality via --append-system-prompt-file", "severity": "critical"},
+    {"id": "F3", "title": "Auto-materialized default AGENTS.md overwrites custom personality", "rootCause": "Paperclip generates generic default when no instructionsFilePath configured", "impact": "All agents get identical generic boilerplate", "severity": "critical"},
+    {"id": "F4", "title": ".paperclip.yaml declared but never consumed by setup.sh", "rootCause": "setup.sh hardcodes values, never reads the YAML file", "impact": "Two disconnected sources of truth, silent config drift", "severity": "high"},
+    {"id": "F5", "title": "capabilities field unused in agent registration", "rootCause": "API supports capabilities field, setup.sh never populates it", "impact": "No capability-based routing or discovery in Paperclip", "severity": "high"},
+    {"id": "F6", "title": "reportsTo field unused — org chart not established", "rootCause": "AGENTS.md defines reportsTo but setup.sh doesn't set it", "impact": "No delegation chains or escalation paths", "severity": "high"},
+    {"id": "F7", "title": "AGENTS.md files not volume-mounted into Paperclip container", "rootCause": "docker-compose.yml mounts only paperclip-data volume, not company agent files", "impact": "Even with instructionsFilePath set, files would be inaccessible inside container", "severity": "critical"},
+    {"id": "F8", "title": ".paperclip.yaml lacks personality configuration fields", "rootCause": "YAML defines only adapter_type and model, no instructions/capabilities fields", "impact": "Declarative config cannot drive personality delivery", "severity": "medium"}
+  ]
+}

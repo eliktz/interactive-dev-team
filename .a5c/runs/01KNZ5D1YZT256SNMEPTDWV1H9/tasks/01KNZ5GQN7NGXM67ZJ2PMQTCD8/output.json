@@ -1,0 +1,5 @@
+{
+  "summary": "Added Playwright MCP service (mcr.microsoft.com/playwright/mcp, port 8931, headless chromium). Added as war-room dependency. Created config/mcp-settings.json. Updated launch.sh to merge MCP config on startup. Updated Dockerfile to copy config/.",
+  "filesModified": ["docker-compose.yml", "launch.sh", "Dockerfile", "config/mcp-settings.json"],
+  "dockerComposeChanges": "Added playwright service before volumes section. Added playwright dependency to war-room."
+}

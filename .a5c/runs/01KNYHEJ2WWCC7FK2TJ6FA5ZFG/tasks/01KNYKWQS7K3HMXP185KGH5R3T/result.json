@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "2026.01.results-v1",
+  "effectId": "01KNYKWQS7K3HMXP185KGH5R3T",
+  "taskId": "implement-fix",
+  "invocationKey": "paperclip-agent-personality-fix:S000005:implement-fix",
+  "status": "ok",
+  "result": {
+    "changesSummary": "Implemented Option A: (1) docker-compose.yml: added bind-mount './companies:/paperclip/companies:ro' to paperclip service. (2) setup.sh: replaced static AGENT_DEFS with build_agent_body() function generating JSON with instructionsFilePath, capabilities, and reportsTo. PM created first, its ID passed to subsequent agents. (3) .paperclip.yaml: added instructionsFilePath and reportsTo fields per agent.",
+    "filesModified": [
+      "docker-compose.yml",
+      "scripts/setup.sh",
+      "companies/go-north/.paperclip.yaml"
+    ],
+    "setupScriptChanges": "Replaced AGENT_DEFS array with AGENT_CAPABILITIES/AGENT_NAMES/AGENT_ROLES/AGENT_MODELS maps + build_agent_body() function using python3 for JSON assembly. instructionsFilePath set to /paperclip/companies/go-north/agents/<slug>/AGENTS.md. reportsTo resolved dynamically from PM agent ID. Idempotency preserved."
+  },
+  "startedAt": "2026-04-11T15:55:17.448Z",
+  "finishedAt": "2026-04-11T15:55:17.448Z",
+  "value": {
+    "changesSummary": "Implemented Option A: (1) docker-compose.yml: added bind-mount './companies:/paperclip/companies:ro' to paperclip service. (2) setup.sh: replaced static AGENT_DEFS with build_agent_body() function generating JSON with instructionsFilePath, capabilities, and reportsTo. PM created first, its ID passed to subsequent agents. (3) .paperclip.yaml: added instructionsFilePath and reportsTo fields per agent.",
+    "filesModified": [
+      "docker-compose.yml",
+      "scripts/setup.sh",
+      "companies/go-north/.paperclip.yaml"
+    ],
+    "setupScriptChanges": "Replaced AGENT_DEFS array with AGENT_CAPABILITIES/AGENT_NAMES/AGENT_ROLES/AGENT_MODELS maps + build_agent_body() function using python3 for JSON assembly. instructionsFilePath set to /paperclip/companies/go-north/agents/<slug>/AGENTS.md. reportsTo resolved dynamically from PM agent ID. Idempotency preserved."
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T21:01:49.415Z",
+  "data": {
+    "effectId": "01KNZ5KMYRGWDW67PXMXP46FRF",
+    "invocationKey": "agent-tooling-setup:S000002:add-bitbucket-mcp",
+    "invocationHash": "d8523e6e793fc34d3091201aa3d7c782db5473e72ebc588ddb3b407e9b889991",
+    "stepId": "S000002",
+    "taskId": "add-bitbucket-mcp",
+    "kind": "agent",
+    "label": "devops",
+    "taskDefRef": "tasks/01KNZ5KMYRGWDW67PXMXP46FRF/task.json",
+    "labels": [
+      "devops",
+      "bitbucket",
+      "mcp"
+    ]
+  },
+  "checksum": "0fb1ae44f60a59c3a3c80b1452c818ee142ce0c1bdb3a1a1cd7542855aeda058"
+}

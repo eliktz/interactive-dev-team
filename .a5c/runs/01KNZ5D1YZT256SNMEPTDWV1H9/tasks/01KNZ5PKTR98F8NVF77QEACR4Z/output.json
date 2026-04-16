@@ -1,0 +1,4 @@
+{
+  "filesModified": ["agents/captain/CLAUDE.md", "agents/ceo-gonorth/CLAUDE.md", "agents/ux-gonorth/CLAUDE.md", "companies/go-north/agents/frontend-dev/AGENTS.md", "companies/go-north/agents/ux-designer/AGENTS.md"],
+  "changesSummary": "Removed all 18 Figma references across 5 files. Replaced with browser-based visual review (Playwright MCP) and markdown design specs. All roles preserved, only tool dependency changed."
+}

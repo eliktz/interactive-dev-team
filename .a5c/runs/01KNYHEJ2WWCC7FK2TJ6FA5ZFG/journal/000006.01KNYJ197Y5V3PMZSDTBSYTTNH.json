@@ -1,0 +1,19 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T15:19:44.638Z",
+  "data": {
+    "effectId": "01KNYJ196T5CRMFVJ3ZYV06DKT",
+    "invocationKey": "paperclip-agent-personality-fix:S000003:propose-fix",
+    "invocationHash": "b9b7c38b5efa195f10adf3b94960d6d181894129a334bca2d596c5350ba2e319",
+    "stepId": "S000003",
+    "taskId": "propose-fix",
+    "kind": "agent",
+    "label": "design",
+    "taskDefRef": "tasks/01KNYJ196T5CRMFVJ3ZYV06DKT/task.json",
+    "labels": [
+      "design",
+      "proposal"
+    ]
+  },
+  "checksum": "3f21ee53a4fdbe63e9d94b1d08beccbfdfa057f6cf5175b6d19bb5dd9c75642a"
+}

@@ -1,0 +1,5 @@
+{
+  "filesModified": ["docker-compose.yml", "scripts/setup.sh", "companies/go-north/.paperclip.yaml"],
+  "changesSummary": "Implemented Option A: (1) docker-compose.yml: added bind-mount './companies:/paperclip/companies:ro' to paperclip service. (2) setup.sh: replaced static AGENT_DEFS with build_agent_body() function generating JSON with instructionsFilePath, capabilities, and reportsTo. PM created first, its ID passed to subsequent agents. (3) .paperclip.yaml: added instructionsFilePath and reportsTo fields per agent.",
+  "setupScriptChanges": "Replaced AGENT_DEFS array with AGENT_CAPABILITIES/AGENT_NAMES/AGENT_ROLES/AGENT_MODELS maps + build_agent_body() function using python3 for JSON assembly. instructionsFilePath set to /paperclip/companies/go-north/agents/<slug>/AGENTS.md. reportsTo resolved dynamically from PM agent ID. Idempotency preserved."
+}

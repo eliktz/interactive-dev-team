@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "2026.01.results-v1",
+  "effectId": "01KNZ5GQN7NGXM67ZJ2PMQTCD8",
+  "taskId": "add-playwright-mcp",
+  "invocationKey": "agent-tooling-setup:S000001:add-playwright-mcp",
+  "status": "ok",
+  "result": {
+    "dockerComposeChanges": "Added playwright service before volumes section. Added playwright dependency to war-room.",
+    "filesModified": [
+      "docker-compose.yml",
+      "launch.sh",
+      "Dockerfile",
+      "config/mcp-settings.json"
+    ],
+    "summary": "Added Playwright MCP service (mcr.microsoft.com/playwright/mcp, port 8931, headless chromium). Added as war-room dependency. Created config/mcp-settings.json. Updated launch.sh to merge MCP config on startup. Updated Dockerfile to copy config/."
+  },
+  "startedAt": "2026-04-11T21:01:40.148Z",
+  "finishedAt": "2026-04-11T21:01:40.148Z",
+  "value": {
+    "dockerComposeChanges": "Added playwright service before volumes section. Added playwright dependency to war-room.",
+    "filesModified": [
+      "docker-compose.yml",
+      "launch.sh",
+      "Dockerfile",
+      "config/mcp-settings.json"
+    ],
+    "summary": "Added Playwright MCP service (mcr.microsoft.com/playwright/mcp, port 8931, headless chromium). Added as war-room dependency. Created config/mcp-settings.json. Updated launch.sh to merge MCP config on startup. Updated Dockerfile to copy config/."
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T21:08:34.161Z",
+  "data": {
+    "effectId": "01KNZ600726XNQST1MWXQ0HTY2",
+    "invocationKey": "agent-tooling-setup:S000005:verify-changes",
+    "invocationHash": "3ed547d091afd7c36c358a1336dd4532c588f409624ecab924f89cb34d3f07be",
+    "stepId": "S000005",
+    "taskId": "verify-changes",
+    "kind": "agent",
+    "label": "verification",
+    "taskDefRef": "tasks/01KNZ600726XNQST1MWXQ0HTY2/task.json",
+    "labels": [
+      "verification",
+      "qa"
+    ]
+  },
+  "checksum": "52f12821d8b5bb39acd2d3410343657a48f3c865d9c339898bb04494c472dc00"
+}

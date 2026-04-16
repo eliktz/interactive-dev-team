@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "2026.01.results-v1",
+  "effectId": "01KNYM2JX7W6Z9W9201HSDCAGC",
+  "taskId": "verify-fix",
+  "invocationKey": "paperclip-agent-personality-fix:S000006:verify-fix",
+  "status": "ok",
+  "result": {
+    "issues": [],
+    "recommendations": [
+      "Add pre-flight check for AGENTS.md existence before registering agents",
+      "Reduce .paperclip.yaml duplication by relying on adapter_defaults for sonnet model",
+      "Add 'check_cmd python3' to prerequisites section in setup.sh"
+    ],
+    "verified": true
+  },
+  "startedAt": "2026-04-11T15:57:36.797Z",
+  "finishedAt": "2026-04-11T15:57:36.797Z",
+  "value": {
+    "issues": [],
+    "recommendations": [
+      "Add pre-flight check for AGENTS.md existence before registering agents",
+      "Reduce .paperclip.yaml duplication by relying on adapter_defaults for sonnet model",
+      "Add 'check_cmd python3' to prerequisites section in setup.sh"
+    ],
+    "verified": true
+  }
+}

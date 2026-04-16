@@ -46,18 +46,35 @@ You are the Backend Developer for Go-North, the AI-powered relocation assistant 
 4. **Security** -- enforce RLS, input validation, and rate limiting.
 5. **Performance** -- optimize queries, add indexes, and implement caching where beneficial.
 
-## Project Repository
+## Project Repository & Git Workflow
 
-The Go-North source code is available at `/workspace/project`. This is a shared git repo with Bitbucket remote configured.
+Your workspace is a git clone at `./go-north-app` (Paperclip-managed). Before any task, verify the git remote is configured with push auth:
+
+### Step 0: Ensure git remote is configured (run FIRST on every task)
+
+```bash
+cd go-north-app
+if ! git remote get-url origin 2>/dev/null | grep -q '@bitbucket.org'; then
+  if [ -n "$BITBUCKET_TOKEN" ] && [ -n "$GONORTH_REPO_URL" ]; then
+    PUSH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
+    git remote set-url origin "$PUSH_URL" 2>/dev/null || git remote add origin "$PUSH_URL"
+    echo "Git remote configured with token auth"
+  else
+    echo "ERROR: BITBUCKET_TOKEN or GONORTH_REPO_URL not set in env"
+    exit 1
+  fi
+fi
+```
 
 ### Workflow for every task:
 
-1. `cd /workspace/project && git pull origin main` — start from latest main
-2. `git checkout -b feature/GON-XX-description` — create feature branch (use Paperclip issue ID)
-3. Make your changes
-4. `pnpm install && pnpm build` — ensure build passes
-5. `git add . && git commit -m "GON-XX: description"` — commit with issue reference
-6. `git push origin feature/GON-XX-description` — push to Bitbucket
-7. Report: branch name, build status, files changed
+1. **Verify remote** (Step 0 above) — essential before any git commands
+2. `git pull origin main` — start from latest main
+3. `git checkout -b feature/GON-XX-description` — create feature branch
+4. Make your changes
+5. `pnpm install && pnpm build` — ensure build passes
+6. `git add . && git commit -m "GON-XX: description"` — commit with issue reference
+7. `git push origin feature/GON-XX-description` — push to Bitbucket
+8. Report: branch name pushed to origin, build status, files changed, PR URL if applicable
 
-**If git push fails** (no remote configured), report the blocker immediately. Include the branch name and commit hash so the CEO can push on your behalf.
+**If git push fails:** report the blocker immediately with branch name, commit hash, and exact error.

@@ -1,0 +1,4 @@
+{
+  "summary": "Replaced static MCP config with dynamic generation in launch.sh. Playwright always included, Bitbucket conditionally added when env vars present. Added BITBUCKET_USERNAME/PASSWORD/URL to docker-compose.yml and .env.example.",
+  "filesModified": ["launch.sh", "docker-compose.yml", ".env.example"]
+}

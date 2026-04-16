@@ -1,0 +1,20 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T21:03:26.567Z",
+  "data": {
+    "effectId": "01KNZ5PKTR98F8NVF77QEACR4Z",
+    "invocationKey": "agent-tooling-setup:S000003:remove-figma-refs",
+    "invocationHash": "ff208c10565870803b74998c1b85a3bc345f3dc49f8da9131f70edec89bf3f77",
+    "stepId": "S000003",
+    "taskId": "remove-figma-refs",
+    "kind": "agent",
+    "label": "cleanup",
+    "taskDefRef": "tasks/01KNZ5PKTR98F8NVF77QEACR4Z/task.json",
+    "labels": [
+      "cleanup",
+      "figma",
+      "agents"
+    ]
+  },
+  "checksum": "ab7146b18c3082ae07b605eeec1a6627b51c695e5dd4b6a2f1324e593ac997c3"
+}

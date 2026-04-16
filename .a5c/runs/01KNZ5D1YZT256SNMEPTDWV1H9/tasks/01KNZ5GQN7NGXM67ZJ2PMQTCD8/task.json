@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "2026.01.tasks-v1",
+  "effectId": "01KNZ5GQN7NGXM67ZJ2PMQTCD8",
+  "taskId": "add-playwright-mcp",
+  "invocationKey": "agent-tooling-setup:S000001:add-playwright-mcp",
+  "stepId": "S000001",
+  "kind": "agent",
+  "title": "Add Playwright MCP browser service",
+  "description": "Add @playwright/mcp as a Docker service and configure agents to use it",
+  "labels": [
+    "devops",
+    "mcp",
+    "playwright"
+  ],
+  "io": {
+    "inputJsonPath": "tasks/01KNZ5GQN7NGXM67ZJ2PMQTCD8/input.json",
+    "outputJsonPath": "tasks/01KNZ5GQN7NGXM67ZJ2PMQTCD8/result.json"
+  },
+  "inputs": {
+    "projectDir": "."
+  }
+}

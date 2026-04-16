@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "2026.01.results-v1",
+  "effectId": "01KNZ5SZNVFXZY4VTKV0JW6NEE",
+  "taskId": "__sdk.breakpoint",
+  "invocationKey": "agent-tooling-setup:S000004:__sdk.breakpoint",
+  "status": "ok",
+  "result": {
+    "approved": true,
+    "response": "Approve - proceed to verify"
+  },
+  "startedAt": "2026-04-11T21:08:21.899Z",
+  "finishedAt": "2026-04-11T21:08:21.899Z",
+  "value": {
+    "approved": true,
+    "response": "Approve - proceed to verify"
+  }
+}

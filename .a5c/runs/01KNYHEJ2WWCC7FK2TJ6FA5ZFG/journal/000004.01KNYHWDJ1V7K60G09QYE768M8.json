@@ -1,0 +1,19 @@
+{
+  "type": "EFFECT_REQUESTED",
+  "recordedAt": "2026-04-11T15:17:05.217Z",
+  "data": {
+    "effectId": "01KNYHWDHHGRSP3262SK7PSEVN",
+    "invocationKey": "paperclip-agent-personality-fix:S000002:identify-flaws",
+    "invocationHash": "6fea013c76c1722b2b09c1a48b2b43800be6fd19db5fb9d86f1dac6e6f9d6394",
+    "stepId": "S000002",
+    "taskId": "identify-flaws",
+    "kind": "agent",
+    "label": "investigation",
+    "taskDefRef": "tasks/01KNYHWDHHGRSP3262SK7PSEVN/task.json",
+    "labels": [
+      "investigation",
+      "analysis"
+    ]
+  },
+  "checksum": "5bcf1d096e44ebf7d36c230fafa578c9544582b1519708b02278813a2e0ffd07"
+}
