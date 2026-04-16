@@ -40,6 +40,10 @@ echo "[war-room] Running as: $(whoami) (uid=$(id -u))"
 
 # --- Clone project repo (Go-North) ---
 PROJECT_DIR="/workspace/project"
+# Allow any user to use this repo (important when shared volume is root-owned)
+git config --global --add safe.directory "$PROJECT_DIR" 2>/dev/null || true
+git config --global --add safe.directory "*" 2>/dev/null || true
+
 if [ -n "${GONORTH_REPO_URL:-}" ]; then
   if [ -d "$PROJECT_DIR/.git" ]; then
     echo "[war-room] Project repo already cloned, pulling latest..."
@@ -52,7 +56,18 @@ if [ -n "${GONORTH_REPO_URL:-}" ]; then
     if [ -n "${BITBUCKET_TOKEN:-}" ] && echo "$CLONE_URL" | grep -q "bitbucket.org"; then
       CLONE_URL=$(echo "$CLONE_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
     fi
-    git clone "$CLONE_URL" "$PROJECT_DIR" 2>&1 || echo "[war-room] WARNING: git clone failed (non-fatal)"
+    # Clone into a temp dir first (in case PROJECT_DIR is a non-empty volume mount)
+    TMP_CLONE=$(mktemp -d)
+    if git clone "$CLONE_URL" "$TMP_CLONE" 2>&1; then
+      # Clear PROJECT_DIR contents (but keep the dir itself, since it's a mount point)
+      find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+      # Copy the clone (including .git) into PROJECT_DIR
+      cp -rT "$TMP_CLONE" "$PROJECT_DIR"
+      rm -rf "$TMP_CLONE"
+    else
+      echo "[war-room] WARNING: git clone failed (non-fatal)"
+      rm -rf "$TMP_CLONE"
+    fi
   fi
 
   # Configure git user for commits
