@@ -109,7 +109,7 @@ services:
 
   playwright:
     image: mcr.microsoft.com/playwright/mcp
-    entrypoint: ["node", "cli.js", "--headless", "--browser", "chromium", "--no-sandbox", "--port", "8931", "--host", "0.0.0.0"]
+    entrypoint: ["node", "/app/cli.js", "--headless", "--browser", "chromium", "--no-sandbox", "--port", "8931", "--host", "0.0.0.0"]
     ports:
       - "8931:8931"
     restart: unless-stopped
