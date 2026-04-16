@@ -18,3 +18,10 @@ You have access to these MCP tools — use them proactively:
 ### Trello (Task Management)
 - **MCP server:** `trello` — board and card management
 - **Use for:** Creating/updating cards, tracking sprint progress
+
+### Deploy to Production
+- **Script:** `/workspace/scripts/deploy-gonorth.sh`
+- **What it does:** Pushes the Go-North repo to Bitbucket (triggers Plesk auto-file-sync), then SSHes to `deploy-plesk` and runs `npm install + next build + Passenger restart`
+- **Usage:** `cd /workspace/project && /workspace/scripts/deploy-gonorth.sh`
+- **Output:** Logs + final line `Deployed URL: https://gonorth.tlk.solutions`
+- **Use this to report a live URL** after a code change has been merged and verified

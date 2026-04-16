@@ -22,6 +22,13 @@ You have access to these MCP tools — use them proactively:
 ### Paperclip (Agent Management)
 - **See:** `@import ../../config/paperclip.md` for full API details
 
+### Deploy to Production
+- **Script:** `/workspace/scripts/deploy-gonorth.sh`
+- **What it does:** Pushes Go-North to Bitbucket (Plesk auto-file-sync) → SSHes to `deploy-plesk` → runs `npm install + next build + Passenger restart` → verifies site returns HTTP 200
+- **Usage:** `cd /workspace/project && /workspace/scripts/deploy-gonorth.sh`
+- **Output:** Logs, final line is `Deployed URL: https://gonorth.tlk.solutions`
+- **When to use:** After QA approval, to push changes live and report the URL
+
 ## Project Context
 
 ### Stack
