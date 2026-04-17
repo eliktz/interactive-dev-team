@@ -99,6 +99,10 @@ services:
       - ./companies:/paperclip/companies:ro
       # Shared project repo — Paperclip agents can read/write/push code
       - project-repo:/workspace/project
+      # Shared deploy scripts — Paperclip agents can run deploy-gonorth.sh
+      - ./scripts:/workspace/scripts:ro
+      # SSH key for deploying to Plesk (same key as war-room)
+      - ${DEPLOY_SSH_KEY_PATH:-/dev/null}:/paperclip/.ssh/deploy_key:ro
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3100/api/health"]
       interval: 5s
