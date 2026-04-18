@@ -196,7 +196,7 @@ ${QA_JSON}
 MD
    )" '{ content: { raw: $body } }')
 
-   curl -sS -u "x-token-auth:${BITBUCKET_TOKEN}" \
+   curl -sS -H "Authorization: Bearer ${BITBUCKET_TOKEN}" \
      -H "Content-Type: application/json" \
      -X POST "https://api.bitbucket.org/2.0/repositories/Liran_katz/go-north-dev-agents/pullrequests/${PR_ID}/comments" \
      -d "$QA_COMMENT"

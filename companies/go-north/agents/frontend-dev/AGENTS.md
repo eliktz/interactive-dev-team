@@ -124,7 +124,7 @@ PR_PAYLOAD=$(jq -n \
     close_source_branch: true
   }')
 
-PR_RESPONSE=$(curl -sS -u "x-token-auth:${BITBUCKET_TOKEN}" \
+PR_RESPONSE=$(curl -sS -H "Authorization: Bearer ${BITBUCKET_TOKEN}" \
   -H "Content-Type: application/json" \
   -X POST "https://api.bitbucket.org/2.0/repositories/Liran_katz/go-north-dev-agents/pullrequests" \
   -d "$PR_PAYLOAD")
