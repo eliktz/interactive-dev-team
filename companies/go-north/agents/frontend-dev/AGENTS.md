@@ -79,7 +79,8 @@ fi
 7. `git push origin feature/GON-XX-description` — push to Bitbucket
 8. **Create the Bitbucket PR** (see Step 9 below — MANDATORY)
 9. Comment the PR URL on the Paperclip issue and set issue status to **`in_review`** (NOT `done`)
-10. Report: branch name, PR URL, build status, files changed, acceptance criteria you verified
+10. **Hand off to QA Lead** — PATCH the issue with `assigneeAgentId=<QA Lead agent id>` (keep status `in_review`) and POST a wakeup to QA Lead with `reason: "Run QA on PR $PR_URL"` (see Step 10 below — MANDATORY)
+11. Report: branch name, PR URL, build status, files changed, acceptance criteria you verified
 
 **If git push fails:** report the blocker immediately. Include the branch name, commit hash, and exact error so the CEO/human can help.
 
@@ -147,9 +148,35 @@ Then, using the Paperclip API:
 1. **Comment** the PR URL on the issue — `POST /api/issues/{issueId}/comments` with body like `"PR opened: $PR_URL  \nReady for QA review."`
 2. **Set status** to `in_review` (or the equivalent — check `/api/companies/{companyId}/workflow-states`). Do **NOT** use status `done`.
 
+### Step 10: Hand off to QA Lead (MANDATORY — do not end the run before this)
+
+Paperclip will NOT auto-route this issue to QA. You must explicitly reassign and wake the QA Lead, otherwise the pipeline stalls.
+
+```bash
+QA_LEAD_ID="a8489f81-1e3f-4d9f-b302-59222c5819d9"  # QA Lead (primary). Fallback: 4af6d6c0-0c55-4128-8b55-6e114a49dd45 (QA Lead 2)
+
+# Reassign the issue to QA Lead (status stays in_review — QA reads comments + picks up)
+curl -sS -X PATCH \
+  -H "Host: paperclip.tlk.solutions" -H "Origin: https://paperclip.tlk.solutions" \
+  -H "Cookie: __Secure-better-auth.${PAPERCLIP_SESSION}" \
+  -H "Content-Type: application/json" \
+  "http://localhost:3100/api/issues/${ISSUE_ID}" \
+  -d "{\"assigneeAgentId\":\"${QA_LEAD_ID}\"}"
+
+# Explicitly wake QA Lead with the PR URL as the reason (QA expects exactly this phrasing)
+curl -sS -X POST \
+  -H "Host: paperclip.tlk.solutions" -H "Origin: https://paperclip.tlk.solutions" \
+  -H "Cookie: __Secure-better-auth.${PAPERCLIP_SESSION}" \
+  -H "Content-Type: application/json" \
+  "http://localhost:3100/api/agents/${QA_LEAD_ID}/wakeup" \
+  -d "{\"source\":\"on_demand\",\"reason\":\"Run QA on PR ${PR_URL}\"}"
+```
+
+If the wakeup returns HTTP 202, you're done — report success. If the wakeup fails, add a comment on the issue describing the failure and exit non-zero so the CEO can intervene.
+
 ### Critical rules
 
-- **NEVER mark the issue `done` yourself.** Your work ends at "PR opened, status=in_review". CEO will route to QA Lead next, and QA Lead/CEO will progress the issue to `done` after deploy.
+- **NEVER mark the issue `done` yourself.** Your work ends at "PR opened, status=in_review, QA Lead woken". QA Lead runs next, and QA Lead/CEO will progress the issue to `done` after deploy.
 - **If PR creation fails:** comment the error on the Paperclip issue, set status back to `in_progress`, and exit non-zero so the Paperclip heartbeat records the failure. Do not leave the issue silently stuck.
 - **Never merge the PR yourself** — that's the CEO's job, after QA approval.
 - **Never push to `main` directly** — always feature branch → PR.
