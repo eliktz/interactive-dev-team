@@ -8,7 +8,7 @@
 
 The Go-North Paperclip installation ran all six agents (Product Manager, Finance Officer, Frontend Dev, Backend Dev, QA Lead, UX Designer) through the `claude_local` adapter against the Anthropic API. As of mid-April 2026 the Anthropic quota for this installation was exhausted and the next refresh window put active development on hold.
 
-Taboola has ample unused quota on its Azure OpenAI deployment (`tlk-agents-east-2`). Paperclip's `codex_local` adapter can target Azure via the Codex CLI's `model_provider` configuration, so migrating unblocks the team without paying Anthropic overage pricing.
+Taboola has ample unused quota on its Azure OpenAI deployment (`tlk-ai-agents`). Paperclip's `codex_local` adapter can target Azure via the Codex CLI's `model_provider` configuration, so migrating unblocks the team without paying Anthropic overage pricing.
 
 ## What changed
 
@@ -44,7 +44,7 @@ The canary run was a trivial codebase-touching task (GON-20: add a timestamp com
 |--------|-------|
 | Issue | GON-20 |
 | Agent | Backend Developer (`2dea472e-8a43-4131-9d8c-2ba429adcb84`) |
-| Model | `gpt-5.3-codex` (provider: openai, via Azure `tlk-agents-east-2`) |
+| Model | `gpt-5.3-codex` (provider: openai, via Azure `tlk-ai-agents`) |
 | Duration | 190s |
 | Exit code | 0 |
 | Commit | `9ea535a` on `feature/GON-20-migration-timestamp-comment` |
@@ -136,6 +136,6 @@ That file contains the exact adapter_type / adapter_config JSON to PATCH back wi
 
 ## Follow-ups
 
-- Monitor Azure quota on `tlk-agents-east-2` — currently well under 20% utilization, but six agents running concurrently on a long PR can spike.
+- Monitor Azure quota on `tlk-ai-agents` — currently well under 20% utilization, but six agents running concurrently on a long PR can spike.
 - Re-evaluate whether Finance Officer needs a cheaper model than `gpt-5.3-codex` (previously on haiku for cost). `gpt-5.3-codex` is priced similarly to mid-tier Claude; for simple finance-ledger tasks a smaller Azure deployment could save ~40%.
 - Once Anthropic quota refreshes, decide whether to stay on Azure permanently or load-balance across both providers via a router adapter (not in Paperclip today).

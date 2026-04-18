@@ -64,7 +64,7 @@ eval $PAPERCLIP_CURL http://paperclip:3100/api/agents/{agentId}
 As of 2026-04-18, all six agents run via the `codex_local` adapter backed by Azure OpenAI (model `gpt-5.3-codex`). Anthropic-direct is retained only as a rollback path.
 
 - **API key env var**: `AZURE_OPENAI_API_KEY` — lives in `.env` (gitignored). It is injected into the Paperclip container via `docker-compose.yml` and passed through per-agent via `adapter_config.env.AZURE_OPENAI_API_KEY` in the Paperclip control plane.
-- **Codex config**: `config/codex-config.toml` is bind-mounted to `/paperclip/.codex/config.toml` inside the container. It declares the `azure` model provider pointing at `https://tlk-agents-east-2.cognitiveservices.azure.com/openai/v1`.
+- **Codex config**: `config/codex-config.toml` is bind-mounted to `/paperclip/.codex/config.toml` inside the container. It declares the `azure` model provider pointing at `https://tlk-ai-agents.cognitiveservices.azure.com/openai/v1`.
 - **api-version gotcha**: `query_params = { api-version = "preview" }` is the literal string `preview`. The unified `/openai/v1` endpoint does not accept dated versions (e.g. `2025-04-01-preview` returns HTTP 400). Do not "fix" this to a dated string.
 - **Per-agent env override**: An agent's `adapter_config.env.AZURE_OPENAI_API_KEY` overrides the container-level env var. This lets us rotate keys per-agent or point an agent at a different Azure deployment without restarting Paperclip.
 

@@ -1,6 +1,6 @@
 # Codex CLI configuration for the Paperclip container.
 # Bind-mounted into the paperclip service at /paperclip/.codex/config.toml
-# Azure OpenAI routing — verified working against tlk-agents-east-2 on 2026-04-18.
+# Azure OpenAI routing — verified working against tlk-ai-agents on 2026-04-18.
 #
 # IMPORTANT:
 # - api-version is the literal string "preview" (the unified /openai/v1 endpoint
@@ -14,7 +14,7 @@ model = "gpt-5.3-codex"
 
 [model_providers.azure]
 name = "Azure OpenAI"
-base_url = "https://tlk-agents-east-2.cognitiveservices.azure.com/openai/v1"
+base_url = "https://tlk-ai-agents.cognitiveservices.azure.com/openai/v1"
 env_key = "AZURE_OPENAI_API_KEY"
 wire_api = "responses"
 query_params = { api-version = "preview" }
