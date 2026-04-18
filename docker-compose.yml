@@ -75,6 +75,10 @@ services:
     build:
       context: ${PAPERCLIP_SOURCE:-./paperclip}
       dockerfile: Dockerfile
+    # Wrap the image entrypoint so Playwright system libs (libglib-2.0, libnss3,
+    # chromium runtime set) are installed before Paperclip starts. Idempotent —
+    # subsequent starts skip the apt install. Needed for QA Lead's qa:visual tier.
+    entrypoint: ["/bin/bash", "/workspace/scripts/paperclip-entrypoint.sh"]
     ports:
       - "${PAPERCLIP_PORT:-3100}:3100"
     environment:
