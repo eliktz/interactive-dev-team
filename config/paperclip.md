@@ -11,19 +11,28 @@
 Paperclip requires session auth with Host and Origin headers. Run this once per session:
 
 ```bash
-# Sign in and capture session token
-PAPERCLIP_SESSION=$(curl -v -s -X POST \
+# Sign in and capture the full session cookie (name=value, including the __Secure-better-auth. prefix).
+# Paperclip sets the cookie as `__Secure-better-auth.session_token=<value>; ...` — we keep the WHOLE
+# name=value pair so the Cookie header is valid without any further concatenation.
+PAPERCLIP_SESSION_COOKIE=$(curl -v -s -X POST \
   -H "Host: paperclip.tlk.solutions" \
   http://paperclip:3100/api/auth/sign-in/email \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@gonorth.dev","password":"GoNorth2026!"}' \
-  2>&1 | grep -oi "session_token=[^;]*" | head -1)
+  2>&1 | grep -oiE "__Secure-better-auth\.session_token=[^;]+" | head -1)
 
-# Reusable curl prefix for all Paperclip API calls
-PAPERCLIP_CURL="curl -s -H 'Host: paperclip.tlk.solutions' -H 'Origin: https://paperclip.tlk.solutions' -H 'Cookie: __Secure-better-auth.${PAPERCLIP_SESSION}'"
+# Back-compat: PAPERCLIP_SESSION holds just the token value (everything after the first '='),
+# so the existing `Cookie: __Secure-better-auth.${PAPERCLIP_SESSION}` pattern still works
+# for recipes that reference PAPERCLIP_SESSION. New code should prefer PAPERCLIP_SESSION_COOKIE.
+PAPERCLIP_SESSION="session_token=${PAPERCLIP_SESSION_COOKIE#*session_token=}"
+
+# Reusable curl prefix for all Paperclip API calls — uses the full name=value cookie
+PAPERCLIP_CURL="curl -s -H 'Host: paperclip.tlk.solutions' -H 'Origin: https://paperclip.tlk.solutions' -H 'Cookie: ${PAPERCLIP_SESSION_COOKIE}'"
 ```
 
 **Why the workaround?** The Docker hostname `paperclip` is not in Paperclip's allowed list. The `Host` header makes Paperclip accept the request. The `Origin` header is required for mutations (POST/PATCH/DELETE). The `Secure` cookie flag prevents `-c` cookie files over HTTP, so we extract the token manually.
+
+**Previous-bug note:** an earlier version of this recipe captured only `session_token=<value>` and relied on the consumer to prepend the `__Secure-better-auth.` prefix. Copying that variable literally into a `Cookie:` header produced 401s. The recipe above captures the full `__Secure-better-auth.session_token=<value>` pair so the cookie header is valid on its own. Keep using `PAPERCLIP_SESSION_COOKIE` in new scripts; `PAPERCLIP_SESSION` is retained only for back-compat with existing snippets that build the cookie as `__Secure-better-auth.${PAPERCLIP_SESSION}`.
 
 ## API Commands
 
