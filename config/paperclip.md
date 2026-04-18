@@ -52,12 +52,37 @@ eval $PAPERCLIP_CURL http://paperclip:3100/api/agents/{agentId}
 
 | Role | Agent ID | Model |
 |------|----------|-------|
-| Product Manager | 804e87be-4e8a-4baa-952d-3472662e7fda | claude-sonnet-4-6 |
-| Finance Officer | 369d3f3a-9c89-446f-ad28-2c589d688b5f | claude-haiku-4-5 |
-| Frontend Developer | 11765603-a552-442a-bbca-b95f7aca9cf3 | claude-sonnet-4-6 |
-| Backend Developer | 2dea472e-8a43-4131-9d8c-2ba429adcb84 | claude-sonnet-4-6 |
-| QA Lead | a8489f81-1e3f-4d9f-b302-59222c5819d9 | claude-sonnet-4-6 |
-| UX Designer (Hedva) | 0fef41ec-014f-4c14-ac6f-5041b1a44961 | claude-sonnet-4-6 |
+| Product Manager | 804e87be-4e8a-4baa-952d-3472662e7fda | gpt-5.3-codex |
+| Finance Officer | 369d3f3a-9c89-446f-ad28-2c589d688b5f | gpt-5.3-codex |
+| Frontend Developer | 11765603-a552-442a-bbca-b95f7aca9cf3 | gpt-5.3-codex |
+| Backend Developer | 2dea472e-8a43-4131-9d8c-2ba429adcb84 | gpt-5.3-codex |
+| QA Lead | a8489f81-1e3f-4d9f-b302-59222c5819d9 | gpt-5.3-codex |
+| UX Designer (Hedva) | 0fef41ec-014f-4c14-ac6f-5041b1a44961 | gpt-5.3-codex |
+
+## Azure OpenAI configuration
+
+As of 2026-04-18, all six agents run via the `codex_local` adapter backed by Azure OpenAI (model `gpt-5.3-codex`). Anthropic-direct is retained only as a rollback path.
+
+- **API key env var**: `AZURE_OPENAI_API_KEY` — lives in `.env` (gitignored). It is injected into the Paperclip container via `docker-compose.yml` and passed through per-agent via `adapter_config.env.AZURE_OPENAI_API_KEY` in the Paperclip control plane.
+- **Codex config**: `config/codex-config.toml` is bind-mounted to `/paperclip/.codex/config.toml` inside the container. It declares the `azure` model provider pointing at `https://tlk-agents-east-2.cognitiveservices.azure.com/openai/v1`.
+- **api-version gotcha**: `query_params = { api-version = "preview" }` is the literal string `preview`. The unified `/openai/v1` endpoint does not accept dated versions (e.g. `2025-04-01-preview` returns HTTP 400). Do not "fix" this to a dated string.
+- **Per-agent env override**: An agent's `adapter_config.env.AZURE_OPENAI_API_KEY` overrides the container-level env var. This lets us rotate keys per-agent or point an agent at a different Azure deployment without restarting Paperclip.
+
+### Rollback
+
+If Azure OpenAI is unavailable, flip each agent back to Claude direct with a PATCH on the agent:
+
+```bash
+# Example for a sonnet agent
+eval $PAPERCLIP_CURL -X PATCH http://paperclip:3100/api/agents/{agentId} \
+  -H "Content-Type: application/json" \
+  -d '{"adapterType":"claude_local","adapterConfig":{"model":"claude-sonnet-4-6","dangerouslySkipPermissions":true,"workingDirectory":"/workspace/project"}}'
+
+# Finance Officer uses haiku instead
+#   "model":"claude-haiku-4-5-20251001"
+```
+
+The pre-migration snapshot of all six agents' adapter configs is at `openclaw/.a5c/processes/paperclip-codex-migration-execute-output/rollback-snapshot.json` (sibling repo, for reference).
 
 ## Issue Workflow
 

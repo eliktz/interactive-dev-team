@@ -82,6 +82,7 @@ services:
       PAPERCLIP_HOME: "/paperclip"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-paperclip-change-me-in-production}"
       PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
@@ -97,6 +98,7 @@ services:
     volumes:
       - paperclip-data:/paperclip
       - ./companies:/paperclip/companies:ro
+      - ./config/codex-config.toml:/paperclip/.codex/config.toml:ro
       # Shared project repo — Paperclip agents can read/write/push code
       - project-repo:/workspace/project
       # Shared deploy scripts — Paperclip agents can run deploy-gonorth.sh

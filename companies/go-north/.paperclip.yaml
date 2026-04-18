@@ -1,40 +1,53 @@
 schema: paperclip/v1
 
 adapter_defaults:
-  adapter_type: claude_local
+  adapter_type: codex_local
   adapter_config:
-    dangerouslySkipPermissions: true
-    model: claude-sonnet-4-6
+    dangerouslyBypassApprovalsAndSandbox: true
+    model: gpt-5.3-codex
     workingDirectory: /workspace/project
+    extraArgs: ["--skip-git-repo-check"]
 
 agents:
   product-manager:
     reportsTo: null
+    adapter_type: codex_local
     adapter_config:
-      model: claude-sonnet-4-6
+      model: gpt-5.3-codex
       instructionsFilePath: /paperclip/companies/go-north/agents/product-manager/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
   finance-officer:
     reportsTo: product-manager
+    adapter_type: codex_local
     adapter_config:
-      model: claude-haiku-4-5-20251001
+      model: gpt-5.3-codex
       instructionsFilePath: /paperclip/companies/go-north/agents/finance-officer/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
   frontend-dev:
     reportsTo: product-manager
+    adapter_type: codex_local
     adapter_config:
-      model: claude-sonnet-4-6
+      model: gpt-5.3-codex
       instructionsFilePath: /paperclip/companies/go-north/agents/frontend-dev/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
   backend-dev:
     reportsTo: product-manager
+    adapter_type: codex_local
     adapter_config:
-      model: claude-sonnet-4-6
+      model: gpt-5.3-codex
       instructionsFilePath: /paperclip/companies/go-north/agents/backend-dev/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
   qa-lead:
     reportsTo: product-manager
+    adapter_type: codex_local
     adapter_config:
-      model: claude-sonnet-4-6
+      model: gpt-5.3-codex
       instructionsFilePath: /paperclip/companies/go-north/agents/qa-lead/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
   ux-designer:
     reportsTo: product-manager
+    adapter_type: codex_local
     adapter_config:
-      model: claude-sonnet-4-6
+      model: gpt-5.3-codex
       instructionsFilePath: /paperclip/companies/go-north/agents/ux-designer/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
