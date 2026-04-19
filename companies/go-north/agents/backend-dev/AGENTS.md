@@ -64,10 +64,25 @@ When a QA verdict comment appears on your issue:
 
 Your workspace is a git clone at `./go-north-app` (Paperclip-managed). Before any task, verify the git remote is configured with push auth:
 
-### Step 0: Ensure git remote is configured (run FIRST on every task)
+### Step -1: Clean workspace (run FIRST FIRST — before anything else)
+
+Your workspace is long-lived and reused across tasks. Previous runs may have left modified or untracked files. These WILL trip up `git checkout`, `pnpm install`, and the pre-push hook. Reset unconditionally:
 
 ```bash
 cd go-north-app
+git reset --hard HEAD 2>&1 | tail -1
+git clean -fd 2>&1 | tail -3
+git fetch origin --prune 2>&1 | tail -2
+git checkout main 2>&1 | tail -1
+git pull origin main 2>&1 | tail -2
+```
+
+### Step 0: Ensure git remote + pre-push hook are configured (run on every task)
+
+```bash
+cd go-north-app
+
+# (a) Auth — embed token in origin URL if not already
 if ! git remote get-url origin 2>/dev/null | grep -q '@bitbucket.org'; then
   if [ -n "$BITBUCKET_TOKEN" ] && [ -n "$GONORTH_REPO_URL" ]; then
     PUSH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
@@ -78,22 +93,31 @@ if ! git remote get-url origin 2>/dev/null | grep -q '@bitbucket.org'; then
     exit 1
   fi
 fi
+
+# (b) Install the pre-push hook — BLOCKS bad pushes before QA ever sees them.
+# Source of truth is /workspace/scripts/dev-pre-push-hook.sh (bind-mounted, git-tracked).
+# We symlink to guarantee future edits propagate — never copy.
+mkdir -p .git/hooks
+ln -sf /workspace/scripts/dev-pre-push-hook.sh .git/hooks/pre-push
+echo "Pre-push hook installed: $(readlink .git/hooks/pre-push)"
 ```
+
+**What the pre-push hook does:** runs `pnpm install --frozen-lockfile && pnpm lint && pnpm build && pnpm test` — the **same gates QA runs**. If any fails, `git push` is blocked by git itself. This is enforcement, not advice. **Do NOT bypass with `--no-verify`.**
 
 ### Workflow for every task:
 
-1. **Verify remote** (Step 0 above) — essential before any git commands
-2. `git pull origin main` — start from latest main
-3. `git checkout -b feature/GON-XX-description` — create feature branch
-4. Make your changes
-5. `pnpm install && pnpm build` — ensure build passes
-6. `git add . && git commit -m "GON-XX: description"` — commit with issue reference  **⚠ see Step 6b below if you touched `package.json`**
+0. **Clean workspace** (Step -1 above) + **verify remote + install hook** (Step 0 above) — always run both, always first
+1. `git pull origin main` — start from latest main
+2. `git checkout -b feature/GON-XX-description` — create feature branch
+3. Make your changes
+4. `pnpm install && pnpm build` — ensure build passes locally
+5. `git add . && git commit -m "GON-XX: description"` — commit with issue reference  **⚠ see Step 6b below if you touched `package.json`**
 6b. **Lockfile guard (MANDATORY if package.json changed)** — see Step 6b section below
-6c. **Pre-push QA dry-run (MANDATORY)** — run the EXACT install command QA uses: `pnpm install --frozen-lockfile && pnpm build`. If this fails locally, it will fail in QA. Fix before pushing.
-7. `git push origin feature/GON-XX-description` — push to Bitbucket
+6c. **Pre-push QA dry-run (MANDATORY — runs AUTOMATICALLY via the pre-push hook; run it manually via the hook path for early feedback if you want)** — mirrors QA exactly: `pnpm install --frozen-lockfile && pnpm lint && pnpm build && pnpm test`. The hook will block `git push` if any gate fails.
+7. `git push origin feature/GON-XX-description` — push to Bitbucket (hook runs automatically; do NOT pass `--no-verify`)
 8. **Create the Bitbucket PR** (see Step 9 below — MANDATORY)
 9. Comment the PR URL on the Paperclip issue and set issue status to **`in_review`** (NOT `done`)
-10. **Hand off to QA Lead** — PATCH the issue with `assigneeAgentId=<QA Lead agent id>` (keep status `in_review`) and POST a wakeup to QA Lead with `reason: "Run QA on PR $PR_URL"` (see Step 10 below — MANDATORY)
+10. **Hand off to QA Lead** — PATCH the issue with `assigneeAgentId=<QA Lead agent id>` (keep status `in_review`) and POST an `@qa-lead run QA on PR $PR_URL` comment (see Step 10 below — MANDATORY)
 11. Report: branch name, PR URL, build status, files changed, acceptance criteria you verified
 
 ### Step 6b: Lockfile guard (MANDATORY when package.json changed)
