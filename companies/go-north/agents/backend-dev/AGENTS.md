@@ -42,6 +42,23 @@ When a QA verdict comment appears on your issue:
 
 **Never** attempt to fix the QA runner environment from inside a PR. If QA says a system dep is missing (e.g. `libglib-2.0.so.0`, `chromium`, a missing CLI tool), that is the operator's problem, not yours. Do not add `apt-get` calls, Dockerfile changes, shell install scripts, or env-patch files to the PR to "help". That creates infra-in-code PRs that get rejected on principle.
 
+**ONE PR per issue — never a second one.** If the Paperclip issue already has a PR URL in its comments, you MUST push additional commits to THAT PR's branch. Do NOT open a new PR on a renamed branch (e.g. `...-filters-scroll` vs `...-filter-scroll`). Symptoms of this mistake: QA immediately rejects the new PR for missing-lockfile (because you branched fresh off main without carrying the fix), and two PRs exist on the same issue confusing the operator. Check:
+
+```bash
+# Find the existing PR branch for this issue (if any)
+EXISTING_PR_BRANCH=$(curl -sS -H "Authorization: Bearer ${BITBUCKET_TOKEN}" \
+  "https://api.bitbucket.org/2.0/repositories/Liran_katz/go-north-dev-agents/pullrequests?q=state%3D%22OPEN%22" \
+  | node -e 'let d=JSON.parse(require("fs").readFileSync(0,"utf8"));let m=(d.values||[]).find(p=>/'"$ISSUE_KEY"'/i.test(p.title||p.source?.branch?.name||""));console.log(m?.source?.branch?.name||"")')
+
+if [ -n "$EXISTING_PR_BRANCH" ]; then
+  echo "PR already open on branch $EXISTING_PR_BRANCH — will push commits to it"
+  git fetch origin "$EXISTING_PR_BRANCH"
+  git checkout -B "$EXISTING_PR_BRANCH" "origin/$EXISTING_PR_BRANCH"
+else
+  git checkout -b "feature/${ISSUE_KEY}-description"
+fi
+```
+
 **Circuit breaker awareness:** if you get two REJECTED verdicts in a row with the same root-cause signature, stop pushing fixes and post a comment asking the CEO / operator to investigate — you are almost certainly chasing an infra issue that QA has misclassified, or the dev loop has gone pathological. Do not attempt a 3rd fix.
 
 ## Tech Stack

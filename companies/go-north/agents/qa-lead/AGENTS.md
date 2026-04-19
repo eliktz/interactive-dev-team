@@ -164,18 +164,19 @@ The workspace is a long-lived git clone reused across QA runs. Prior runs leave 
 - "cannot open shared object" / lockfile-missing / file-missing errors that are NOT the PR's fault
 - `turn.completed` exits with no VERDICT comment → pipeline silent-stalls
 
-**Use the canonical prep script. Do not improvise the reset yourself.** It is idempotent, posts INFRA_BLOCKED if it can't recover, and prints the final branch + HEAD + lockfile-presence so the run log is unambiguous about what was evaluated.
+**Use the canonical prep script. It returns the path of a FRESH clone in `/tmp`, so you never run against state from a prior run.** The script posts INFRA_BLOCKED on any failure and GC's old workspaces automatically.
 
 ```bash
-bash /workspace/scripts/qa-prepare-workspace.sh "$ISSUE_ID" "$PR_BRANCH"
-RC=$?
-if [ "$RC" -ne 0 ]; then
-  # The script already posted INFRA_BLOCKED to the issue; just exit cleanly.
+# Capture stdout = absolute path of the clean workspace. stderr = logs.
+QA_WS=$(bash /workspace/scripts/qa-prepare-workspace.sh "$ISSUE_ID" "$PR_BRANCH" "$PAPERCLIP_RUN_ID")
+if [ -z "$QA_WS" ] || [ ! -d "$QA_WS" ]; then
+  # Prep already posted INFRA_BLOCKED. Exit cleanly.
   exit 0
 fi
-# After this line the workspace is guaranteed to be on $PR_BRANCH at the latest origin tip, clean.
-cd go-north-app
+cd "$QA_WS"
 ```
+
+All subsequent gates MUST run in `$QA_WS` (not in the long-lived agent workspace). The clone is shallow (`--depth 1 --single-branch --branch "$PR_BRANCH"`), gated by existence on origin, and verified to be on the expected branch before returning.
 
 If for some reason the script is unavailable (path changed / not bind-mounted), fall back to this inline reset, but do NOT skip it:
 

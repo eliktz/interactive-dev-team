@@ -1,26 +1,44 @@
 #!/bin/bash
-# QA Lead workspace-prep helper.
+# QA Lead workspace-prep helper — EPHEMERAL CLONE PATTERN.
 #
-# Called from QA Lead's AGENTS.md Step 1b BEFORE any gate runs. Ensures the
-# workspace is clean + on the PR branch we're asked to evaluate. If anything
-# goes wrong, posts a real `VERDICT: INFRA_BLOCKED` comment on the Paperclip
-# issue (not just a log line) so the pipeline surfaces the blocker instead
-# of stalling silently.
+# Context: the persistent QA workspace at
+#   /paperclip/instances/default/workspaces/<qa-agent-id>/go-north-app
+# bleeds state across runs (modified files, wrong branch, .gitignored
+# artifacts, dangling local branches). Every state-bleed incident caused
+# QA to evaluate the WRONG tree and post a bogus REJECTED verdict.
 #
-# Usage:
-#   bash /workspace/scripts/qa-prepare-workspace.sh <ISSUE_ID> <PR_BRANCH>
+# New approach: each QA run gets a FRESH shallow clone of the PR branch
+# in /tmp. When the run ends, it's automatically garbage-collected by
+# the next run. No reusable state, no reset-dance, no wrong-branch bugs.
+#
+# Usage (from QA Lead AGENTS.md Step 1b):
+#   WS=$(bash /workspace/scripts/qa-prepare-workspace.sh "$ISSUE_ID" "$PR_BRANCH" "$PAPERCLIP_RUN_ID")
+#   [ -z "$WS" ] && exit 0   # prep posted INFRA_BLOCKED already
+#   cd "$WS"
+#   # ... run gates here ...
+#
+# Exits:
+#   On success: prints the absolute path of the fresh workspace to stdout, exits 0.
+#   On failure: posts VERDICT: INFRA_BLOCKED to the Paperclip issue, prints nothing, exits 2.
 #
 # Env required:
 #   PAPERCLIP_API_KEY, PAPERCLIP_RUN_ID, BITBUCKET_TOKEN, GONORTH_REPO_URL
-#
-# Exits:
-#   0 on success (workspace is on the expected branch, clean tree)
-#   2 on infra failure (comment was posted; caller should exit 0 itself)
 
 set -u
 
-ISSUE_ID="${1:?usage: qa-prepare-workspace.sh <ISSUE_ID> <PR_BRANCH>}"
-PR_BRANCH="${2:?usage: qa-prepare-workspace.sh <ISSUE_ID> <PR_BRANCH>}"
+ISSUE_ID="${1:?usage: qa-prepare-workspace.sh <ISSUE_ID> <PR_BRANCH> [RUN_ID]}"
+PR_BRANCH="${2:?usage: qa-prepare-workspace.sh <ISSUE_ID> <PR_BRANCH> [RUN_ID]}"
+RUN_ID="${3:-${PAPERCLIP_RUN_ID:-$$}}"
+
+# Base dir for ephemeral QA workspaces
+BASE=/tmp/qa-workspaces
+mkdir -p "$BASE"
+
+# Garbage collect workspaces older than 2h to keep /tmp tidy
+find "$BASE" -mindepth 1 -maxdepth 1 -type d -mmin +120 -exec rm -rf {} + 2>/dev/null || true
+
+WS_PARENT="$BASE/$RUN_ID"
+WS="$WS_PARENT/go-north-app"
 
 post_infra_blocked() {
   local reason="$1"
@@ -28,78 +46,54 @@ post_infra_blocked() {
 
 VERDICT: INFRA_BLOCKED
 
-- Failed step: pre-gate workspace prep
+- Failed step: pre-gate workspace clone
 - Root cause: $reason
 - PR status: unchanged (do NOT reject)
-- Action needed: operator must inspect the QA workspace and clean it manually (or identify why the branch can't be checked out)
+- Action needed: operator — check qa-prepare-workspace.sh logs in run $RUN_ID
 
-(posted by qa-prepare-workspace.sh)"
-  # jq is not guaranteed; build JSON manually, escape newlines
+(posted by qa-prepare-workspace.sh ephemeral-clone mode)"
   local json_body
-  json_body=$(printf '%s' "$body" | node -e 'let s=require("fs").readFileSync(0,"utf8");process.stdout.write(JSON.stringify({body:s}))' 2>/dev/null) || json_body="{\"body\":\"$reason\"}"
+  json_body=$(printf '%s' "$body" | node -e 'let s=require("fs").readFileSync(0,"utf8");process.stdout.write(JSON.stringify({body:s}))' 2>/dev/null) \
+    || json_body="{\"body\":\"INFRA_BLOCKED: $reason\"}"
   curl -sS -o /dev/null -X POST \
     -H "Authorization: Bearer ${PAPERCLIP_API_KEY:-}" \
-    -H "X-Paperclip-Run-Id: ${PAPERCLIP_RUN_ID:-}" \
+    -H "X-Paperclip-Run-Id: ${PAPERCLIP_RUN_ID:-$RUN_ID}" \
     -H "Content-Type: application/json" \
     "http://localhost:3100/api/issues/${ISSUE_ID}/comments" \
-    -d "$json_body" || true
-  echo "[qa-prep] INFRA_BLOCKED posted: $reason"
+    -d "$json_body" >&2 || true
+  echo "[qa-prep] INFRA_BLOCKED posted to $ISSUE_ID: $reason" >&2
 }
 
-# Enter the workspace
-if [ ! -d go-north-app ]; then
-  post_infra_blocked "go-north-app directory does not exist in QA workspace"
+# Build the authenticated clone URL
+if [ -z "${BITBUCKET_TOKEN:-}" ] || [ -z "${GONORTH_REPO_URL:-}" ]; then
+  post_infra_blocked "BITBUCKET_TOKEN or GONORTH_REPO_URL not set in env"
   exit 2
 fi
-cd go-north-app
+AUTH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
 
-# (1) Ensure remote has auth
-if ! git remote get-url origin 2>/dev/null | grep -q '@bitbucket.org'; then
-  if [ -n "${BITBUCKET_TOKEN:-}" ] && [ -n "${GONORTH_REPO_URL:-}" ]; then
-    PUSH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
-    git remote set-url origin "$PUSH_URL" 2>/dev/null || git remote add origin "$PUSH_URL"
-  else
-    post_infra_blocked "BITBUCKET_TOKEN or GONORTH_REPO_URL missing; cannot configure git remote"
-    exit 2
-  fi
-fi
+# Wipe any pre-existing dir for this run id (idempotent) and clone fresh
+rm -rf "$WS_PARENT"
+mkdir -p "$WS_PARENT"
 
-# (2) Hard reset + clean — unconditionally discard all previous run artifacts
-echo "[qa-prep] Resetting workspace (discarding prior run state)..."
-git reset --hard HEAD 2>&1 | tail -1
-git clean -fdx 2>&1 | tail -3        # -x also removes .gitignored (test-results, .next, etc.)
-
-# (3) Fetch + checkout the PR branch fresh
-echo "[qa-prep] Fetching origin..."
-if ! git fetch origin --prune 2>&1 | tail -3; then
-  post_infra_blocked "git fetch origin failed"
+echo "[qa-prep] Cloning $PR_BRANCH (shallow, single-branch) -> $WS" >&2
+if ! git clone --depth 1 --single-branch --branch "$PR_BRANCH" "$AUTH_URL" "$WS" 2>&1 | tail -5 >&2; then
+  post_infra_blocked "git clone failed for branch $PR_BRANCH (branch may not exist on origin, or auth failed)"
   exit 2
 fi
 
-echo "[qa-prep] Checking out $PR_BRANCH..."
-# First try: checkout the branch; if it fails, the reset may not have been enough.
-if ! git checkout -B "$PR_BRANCH" "origin/$PR_BRANCH" 2>&1 | tail -3; then
-  # Last resort: wipe local branch + recreate from origin
-  git checkout main 2>&1 | tail -1
-  git branch -D "$PR_BRANCH" 2>/dev/null || true
-  if ! git checkout -b "$PR_BRANCH" "origin/$PR_BRANCH" 2>&1 | tail -3; then
-    post_infra_blocked "Could not checkout $PR_BRANCH after reset+clean+branch-delete fallback"
-    exit 2
-  fi
-fi
+cd "$WS" || { post_infra_blocked "cloned dir does not exist at $WS"; exit 2; }
 
-# (4) Fast-forward to remote tip
-git reset --hard "origin/$PR_BRANCH" 2>&1 | tail -1
-
-# (5) SANITY CHECK: verify we're actually on the branch we think we are
+# Sanity: confirm we're on the branch and at the remote tip
 ACTUAL_BRANCH=$(git branch --show-current)
 if [ "$ACTUAL_BRANCH" != "$PR_BRANCH" ]; then
-  post_infra_blocked "Post-checkout branch mismatch: expected=$PR_BRANCH, actual=$ACTUAL_BRANCH"
+  post_infra_blocked "post-clone branch mismatch: expected=$PR_BRANCH, actual=$ACTUAL_BRANCH"
   exit 2
 fi
 
-# (6) Report what we got so run logs clearly show which commit QA evaluated
 HEAD_COMMIT=$(git rev-parse --short HEAD)
-echo "[qa-prep] ✅ Workspace ready — branch=$PR_BRANCH head=$HEAD_COMMIT"
-echo "[qa-prep] pnpm-lock.yaml present: $(test -f pnpm-lock.yaml && echo yes || echo NO)"
-echo "[qa-prep] package.json present: $(test -f package.json && echo yes || echo NO)"
+echo "[qa-prep] ✅ Fresh clone ready — branch=$PR_BRANCH head=$HEAD_COMMIT path=$WS" >&2
+echo "[qa-prep] pnpm-lock.yaml present: $(test -f pnpm-lock.yaml && echo yes || echo NO)" >&2
+echo "[qa-prep] package.json present: $(test -f package.json && echo yes || echo NO)" >&2
+
+# Emit the path on stdout for the caller to `cd` into
+echo "$WS"
