@@ -35,7 +35,9 @@ You are the Backend Developer for Go-North, the AI-powered relocation assistant 
 When a QA verdict comment appears on your issue:
 
 - **APPROVED** — your work is done. Exit 0. The CEO / human will merge the PR.
-- **REJECTED (scope / logic / acceptance)** — fix per the QA comment, push a new commit to the same branch, update the PR, re-trigger QA (same handoff as first time — Step 10 below).
+- **REJECTED (scope / logic / acceptance)** — fix per the QA comment, push a new commit to the same branch, update the PR, **re-trigger QA (Step 10 handoff is MANDATORY after EVERY re-push — see "Always re-close the loop" below)**.
+
+**Always re-close the loop.** Every time you push a new commit in response to a QA REJECTED verdict (OR after a CEO/operator manual override of the circuit breaker), you MUST re-run the Step 10 handoff: PATCH `assigneeAgentId=QA Lead` + POST the `@qa-lead retry QA on PR $PR_URL` comment. Without this, Paperclip's scheduler has nothing to wake QA on, and your fix sits in the PR forever while the issue stays in `in_review` with no one running. This is the single most common "silent stall" — do not skip it.
 - **INFRA_BLOCKED** — **DO NOTHING**. This is NOT your problem. Do not modify code. Do not add env-patch files to the PR. Do not retry. Leave the issue in `in_review`, post a single comment `"Acknowledged: infra issue, not a PR issue. Waiting for operator."`, exit 0. A human operator will fix the runner and retrigger QA.
 
 **Never** attempt to fix the QA runner environment from inside a PR. If QA says a system dep is missing (e.g. `libglib-2.0.so.0`, `chromium`, a missing CLI tool), that is the operator's problem, not yours. Do not add `apt-get` calls, Dockerfile changes, shell install scripts, or env-patch files to the PR to "help". That creates infra-in-code PRs that get rejected on principle.
@@ -85,12 +87,49 @@ fi
 3. `git checkout -b feature/GON-XX-description` — create feature branch
 4. Make your changes
 5. `pnpm install && pnpm build` — ensure build passes
-6. `git add . && git commit -m "GON-XX: description"` — commit with issue reference
+6. `git add . && git commit -m "GON-XX: description"` — commit with issue reference  **⚠ see Step 6b below if you touched `package.json`**
+6b. **Lockfile guard (MANDATORY if package.json changed)** — see Step 6b section below
+6c. **Pre-push QA dry-run (MANDATORY)** — run the EXACT install command QA uses: `pnpm install --frozen-lockfile && pnpm build`. If this fails locally, it will fail in QA. Fix before pushing.
 7. `git push origin feature/GON-XX-description` — push to Bitbucket
 8. **Create the Bitbucket PR** (see Step 9 below — MANDATORY)
 9. Comment the PR URL on the Paperclip issue and set issue status to **`in_review`** (NOT `done`)
 10. **Hand off to QA Lead** — PATCH the issue with `assigneeAgentId=<QA Lead agent id>` (keep status `in_review`) and POST a wakeup to QA Lead with `reason: "Run QA on PR $PR_URL"` (see Step 10 below — MANDATORY)
 11. Report: branch name, PR URL, build status, files changed, acceptance criteria you verified
+
+### Step 6b: Lockfile guard (MANDATORY when package.json changed)
+
+If you added, removed, or version-bumped any npm dependency, `pnpm-lock.yaml` MUST be regenerated and committed in the SAME commit. QA runs `pnpm install --frozen-lockfile` (CI-correct) and will reject the PR with `ERR_PNPM_OUTDATED_LOCKFILE` otherwise. This is the #1 reason PRs bounce.
+
+Run this right after staging (step 6, before the actual commit):
+
+```bash
+# If package.json is staged but pnpm-lock.yaml is not, regenerate the lockfile
+if git diff --cached --name-only | grep -q '^package.json$' \
+   && ! git diff --cached --name-only | grep -q '^pnpm-lock.yaml$'; then
+  echo "[lockfile-guard] package.json changed — regenerating pnpm-lock.yaml"
+  pnpm install    # NO --frozen-lockfile here — we're explicitly regenerating
+  git add pnpm-lock.yaml
+fi
+```
+
+Then commit as usual. Never hand-edit `pnpm-lock.yaml`.
+
+### Step 6c: Pre-push QA dry-run (MANDATORY)
+
+Before every `git push`, run the exact install + build QA uses. If this fails locally, the PR will be rejected — **fix it before pushing**, not after.
+
+```bash
+pnpm install --frozen-lockfile || {
+  echo "[pre-push] frozen-lockfile install FAILED. Did Step 6b run? Regenerate pnpm-lock.yaml and re-commit before pushing."
+  exit 1
+}
+pnpm build || {
+  echo "[pre-push] build FAILED. Fix before pushing."
+  exit 1
+}
+```
+
+This mirrors QA's first two gates exactly (`build` tier in qa-lead/AGENTS.md). Catching it here saves a QA round-trip (~3-5 min per rejection).
 
 **If git push fails:** report the blocker immediately with branch name, commit hash, and exact error.
 
