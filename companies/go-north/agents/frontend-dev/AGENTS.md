@@ -121,10 +121,28 @@ echo "Pre-push hook installed: $(readlink .git/hooks/pre-push)"
 
 **What the pre-push hook does:** runs `pnpm install --frozen-lockfile && pnpm lint && pnpm build && pnpm test` — the **same gates QA runs**. If any fails, `git push` is blocked by git itself. This is enforcement, not advice. **Do NOT bypass with `--no-verify`.**
 
+### Step 1b: Ephemeral workspace (MANDATORY — mirrors QA commit 0de0e49)
+
+Per DEV_QA-2 fix: every dev task runs in a fresh `/tmp/dev-workspaces/<run-uuid>/go-north-app` clone. The long-lived `/paperclip/instances/default/workspaces/<agent-uuid>/go-north-app` workspace is **forbidden for writes** — its `node_modules` drifts from `pnpm-lock.yaml` and feature branches collide. Dev's stale tree is the mechanical cause of "dev green, QA red".
+
+```bash
+# Right after Step 1 (git pull origin main) on the persistent tree (for discovery only),
+# switch to an ephemeral clone for all actual work:
+DEV_WS=$(bash /workspace/scripts/dev-prepare-workspace.sh "$ISSUE_ID" "${BRANCH:-main}" "$PAPERCLIP_RUN_ID")
+if [ -z "$DEV_WS" ] || [ ! -d "$DEV_WS" ]; then
+  # Prep already posted INFRA_BLOCKED. Exit cleanly.
+  exit 0
+fi
+cd "$DEV_WS"
+```
+
+All subsequent `pnpm`, `git`, and file edits MUST run in `$DEV_WS`. **Do NOT write to** `/paperclip/instances/default/workspaces/<agent-uuid>/go-north-app` — that path is read-only for this workflow. The ephemeral clone is GC'd automatically by the workspace TTL sweeper.
+
 ### Workflow for every task:
 
 0. **Clean workspace** (Step -1 above) + **verify remote + install hook** (Step 0 above) — always run both, always first
 1. `git pull origin main` — start from latest main
+1b. **Ephemeral workspace** — run `dev-prepare-workspace.sh` (see Step 1b section above) and `cd $DEV_WS` before touching any code
 2. `git checkout -b feature/GON-XX-description` — create feature branch
 3. Make your changes
 4. `pnpm install && pnpm build` — ensure build passes locally

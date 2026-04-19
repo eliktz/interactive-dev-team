@@ -45,6 +45,30 @@ if ! pnpm install --frozen-lockfile 2>&1 | tail -10; then
   exit 1
 fi
 
+# Gate 1b (DEV_QA-6): Lockfile-drift guard.
+# After a successful frozen install, ensure the lockfile wasn't modified vs the
+# index. If `pnpm install --frozen-lockfile` somehow succeeded while leaving the
+# lockfile dirty (edge cases with overrides, hoisting changes, etc.), abort the
+# push so QA never sees a drifted tree.
+if ! git diff --exit-code pnpm-lock.yaml 2>&1 | tail -20; then
+  echo
+  echo "[pre-push] ❌ FAILED: pnpm-lock.yaml would have been modified by the frozen install."
+  echo "[pre-push] This means the lockfile on disk and the one in your commit disagree."
+  echo "[pre-push] Regenerate and re-commit:"
+  echo "[pre-push]   pnpm install"
+  echo "[pre-push]   git add pnpm-lock.yaml && git commit -m 'lockfile: regenerate'"
+  exit 1
+fi
+
+# Also warn (not block) if pnpm-lock.yaml is listed in .gitignore — that is the
+# root cause of the GON-25 drift loop (lockfile was gitignored; devs kept
+# re-opening PRs without it).
+if [ -f .gitignore ] && grep -qE '^pnpm-lock\.yaml' .gitignore 2>/dev/null; then
+  echo "[pre-push] ⚠ WARNING: pnpm-lock.yaml is listed in .gitignore."
+  echo "[pre-push]   The lockfile MUST be tracked in git — QA installs with --frozen-lockfile"
+  echo "[pre-push]   and will fail every PR until this line is removed from .gitignore."
+fi
+
 # Gate 2: lint — SCOPED TO PR-TOUCHED FILES ONLY
 # The repo has pre-existing lint debt on main. Running repo-wide lint would
 # block every push on errors the PR didn't introduce. Instead: only lint the

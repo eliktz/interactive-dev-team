@@ -1,0 +1,51 @@
+{
+  "$comment": "QA tier → gate matrix. Authoritative per DEV_QA-1 fix. qa:* label on the Paperclip issue selects which row applies. Unknown/missing label → qa:functional (default). install=frozen runs pnpm install --frozen-lockfile; install=install_only runs install but skips all gates. lint_scope=pr_diff lints only files changed vs origin/main; lint_scope=repo runs repo-wide; lint=none skips lint entirely. tests values: skip|yes. visual values: off|on. build values: skip|yes.",
+  "default_tier": "qa:functional",
+  "tiers": {
+    "qa:none": {
+      "description": "Docs / comments / non-runtime changes. Auto-approve after install verification.",
+      "install": "install_only",
+      "lint": "none",
+      "lint_scope": "none",
+      "build": "skip",
+      "tests": "skip",
+      "visual": "off"
+    },
+    "qa:build": {
+      "description": "Refactor, dead-code cleanup, type-only changes. Compile must succeed; no behavior tests.",
+      "install": "frozen",
+      "lint": "yes",
+      "lint_scope": "pr_diff",
+      "build": "yes",
+      "tests": "skip",
+      "visual": "off"
+    },
+    "qa:functional": {
+      "description": "DEFAULT. Any backend or logic change. Build + PR-diff lint + unit/functional tests, no visual.",
+      "install": "frozen",
+      "lint": "yes",
+      "lint_scope": "pr_diff",
+      "build": "yes",
+      "tests": "yes",
+      "visual": "off"
+    },
+    "qa:visual": {
+      "description": "UI / CSS / layout-affecting frontend changes. All gates, including Playwright visual diff.",
+      "install": "frozen",
+      "lint": "yes",
+      "lint_scope": "pr_diff",
+      "build": "yes",
+      "tests": "yes",
+      "visual": "on"
+    },
+    "qa:quality": {
+      "description": "Repo-wide code-quality sweep. Runs lint across the entire repo, not just PR-diff. Use only when explicitly labeled.",
+      "install": "frozen",
+      "lint": "yes",
+      "lint_scope": "repo",
+      "build": "yes",
+      "tests": "yes",
+      "visual": "off"
+    }
+  }
+}
