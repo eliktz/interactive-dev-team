@@ -157,19 +157,45 @@ done
 # all gates passed → APPROVED
 ```
 
-#### Gate: `build`
+#### Step 1b — Clean-workspace guard (MANDATORY — run BEFORE any gate)
+
+Your workspace is a long-lived git clone that is reused across QA runs. Previous QA runs may have left uncommitted changes (modified files, untracked artifacts). These WILL block `git checkout $PR_BRANCH` with "untracked working tree files would be overwritten". If that happens, the old flow was to emit an internal `agent_message` and silently exit — that stalls the pipeline with no comment on the issue.
+
+**New rule: always reset the workspace to a clean state before any gate. If the reset itself fails, emit VERDICT: INFRA_BLOCKED (a comment on the issue, not just a log line).**
 
 ```bash
 cd go-north-app
+
 # Ensure git remote has auth (same pattern as dev agents)
 if ! git remote get-url origin 2>/dev/null | grep -q '@bitbucket.org'; then
   PUSH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
   git remote set-url origin "$PUSH_URL" 2>/dev/null || git remote add origin "$PUSH_URL"
 fi
 
-git fetch origin --prune
-git checkout "$PR_BRANCH"
-git pull origin "$PR_BRANCH"
+# Hard reset: discard all modifications + untracked files. These are leftovers
+# from prior QA runs, not PR content — never preserve them.
+git reset --hard HEAD 2>&1 | tail -2
+git clean -fd 2>&1 | tail -3
+
+# Now safe to switch branches
+git fetch origin --prune 2>&1 | tail -3
+if ! git checkout "$PR_BRANCH" 2>&1 | tail -3; then
+  # Still failing after reset — post INFRA_BLOCKED verdict to the issue so the pipeline doesn't stall silently
+  curl -sS -X POST \
+    -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+    -H "X-Paperclip-Run-Id: ${PAPERCLIP_RUN_ID}" \
+    -H "Content-Type: application/json" \
+    "http://localhost:3100/api/issues/${ISSUE_ID}/comments" \
+    -d "{\"body\":\"## QA Report — INFRA_BLOCKED\n\nVERDICT: INFRA_BLOCKED\n\n- Failed step: pre-gate workspace checkout\n- Root cause: Unable to checkout PR branch \`$PR_BRANCH\` even after \`git reset --hard\` + \`git clean -fd\`\n- PR status: unchanged (do NOT reject)\n- Action needed: operator must inspect the QA workspace at \`/paperclip/instances/default/workspaces/a8489f81-.../go-north-app\` and clean it manually\"}"
+  exit 0
+fi
+git pull origin "$PR_BRANCH" 2>&1 | tail -3
+```
+
+#### Gate: `build`
+
+```bash
+cd go-north-app
 
 pnpm install --frozen-lockfile 2>&1 | tail -5
 pnpm build 2>&1 | tee /tmp/qa-build.log
