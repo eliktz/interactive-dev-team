@@ -159,9 +159,25 @@ done
 
 #### Step 1b — Clean-workspace guard (MANDATORY — run BEFORE any gate)
 
-Your workspace is a long-lived git clone that is reused across QA runs. Previous QA runs may have left uncommitted changes (modified files, untracked artifacts). These WILL block `git checkout $PR_BRANCH` with "untracked working tree files would be overwritten". If that happens, the old flow was to emit an internal `agent_message` and silently exit — that stalls the pipeline with no comment on the issue.
+The workspace is a long-lived git clone reused across QA runs. Prior runs leave modified files / untracked artifacts / dangling branches. These silently cause:
+- checkouts of the WRONG branch (you end up evaluating leftover state)
+- "cannot open shared object" / lockfile-missing / file-missing errors that are NOT the PR's fault
+- `turn.completed` exits with no VERDICT comment → pipeline silent-stalls
 
-**New rule: always reset the workspace to a clean state before any gate. If the reset itself fails, emit VERDICT: INFRA_BLOCKED (a comment on the issue, not just a log line).**
+**Use the canonical prep script. Do not improvise the reset yourself.** It is idempotent, posts INFRA_BLOCKED if it can't recover, and prints the final branch + HEAD + lockfile-presence so the run log is unambiguous about what was evaluated.
+
+```bash
+bash /workspace/scripts/qa-prepare-workspace.sh "$ISSUE_ID" "$PR_BRANCH"
+RC=$?
+if [ "$RC" -ne 0 ]; then
+  # The script already posted INFRA_BLOCKED to the issue; just exit cleanly.
+  exit 0
+fi
+# After this line the workspace is guaranteed to be on $PR_BRANCH at the latest origin tip, clean.
+cd go-north-app
+```
+
+If for some reason the script is unavailable (path changed / not bind-mounted), fall back to this inline reset, but do NOT skip it:
 
 ```bash
 cd go-north-app
