@@ -203,11 +203,29 @@ BUILD_EXIT=${PIPESTATUS[0]}
 [ "$BUILD_EXIT" = "0" ]
 ```
 
-#### Gate: `lint`
+#### Gate: `lint` (SCOPED to PR-touched files only)
+
+**Scope rule** (per CEO directive 2026-04-19): `main` has pre-existing lint debt. Running repo-wide `pnpm lint` would fail every PR on errors it didn't introduce. The lint gate runs only on files this PR changed vs `origin/main`. If your PR touched no lintable files, the gate is skipped.
 
 ```bash
-pnpm lint 2>&1 | tee /tmp/qa-lint.log
-LINT_EXIT=${PIPESTATUS[0]}
+# Compute files changed vs origin/main (JS/TS only, exclude node_modules + .next)
+CHANGED_FILES=$(git diff --name-only "origin/main...HEAD" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' 2>/dev/null \
+  | grep -v '^node_modules/' \
+  | grep -v '/.next/' \
+  || true)
+
+if [ -z "$CHANGED_FILES" ]; then
+  echo "[qa-lint] No JS/TS files changed vs origin/main — skipping lint gate"
+  LINT_EXIT=0
+else
+  FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')
+  echo "[qa-lint] Linting $FILE_COUNT PR-touched files (scoped, not repo-wide)"
+  # shellcheck disable=SC2086
+  pnpm lint $CHANGED_FILES 2>&1 | tee /tmp/qa-lint.log
+  LINT_EXIT=${PIPESTATUS[0]}
+fi
+
+# Exit 0 if lint passed on the PR-touched files (or was skipped), non-zero otherwise
 [ "$LINT_EXIT" = "0" ]
 ```
 

@@ -45,15 +45,29 @@ if ! pnpm install --frozen-lockfile 2>&1 | tail -10; then
   exit 1
 fi
 
-# Gate 2: lint — skip if no lint script exists
+# Gate 2: lint — SCOPED TO PR-TOUCHED FILES ONLY
+# The repo has pre-existing lint debt on main. Running repo-wide lint would
+# block every push on errors the PR didn't introduce. Instead: only lint the
+# files this branch changed vs origin/main (matches QA's scope policy).
 if node -e 'process.exit(require("./package.json").scripts?.lint ? 0 : 1)' 2>/dev/null; then
-  echo "[pre-push] (2/4) pnpm lint"
-  if ! pnpm lint 2>&1 | tail -30; then
-    echo
-    echo "[pre-push] ❌ FAILED: pnpm lint."
-    echo "[pre-push] Fix the lint errors above and commit before pushing."
-    echo "[pre-push] Common flavors: react-hooks/refs, react-hooks/set-state-in-effect, react-hooks/exhaustive-deps."
-    exit 1
+  # Compute files changed vs origin/main; filter to JS/TS sources
+  CHANGED_FILES=$(git diff --name-only "origin/main...HEAD" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' 2>/dev/null \
+    | grep -v '^node_modules/' \
+    | grep -v '/.next/' \
+    || true)
+  if [ -z "$CHANGED_FILES" ]; then
+    echo "[pre-push] (2/4) pnpm lint — skipped (no JS/TS files changed vs origin/main)"
+  else
+    FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')
+    echo "[pre-push] (2/4) pnpm lint (scoped to $FILE_COUNT PR-touched files)"
+    # shellcheck disable=SC2086
+    if ! pnpm lint $CHANGED_FILES 2>&1 | tail -40; then
+      echo
+      echo "[pre-push] ❌ FAILED: pnpm lint on PR-touched files."
+      echo "[pre-push] Fix the lint errors ABOVE (only in files your PR changed) and commit before pushing."
+      echo "[pre-push] Do NOT try to fix pre-existing lint debt on main in this PR — that is out of scope."
+      exit 1
+    fi
   fi
 else
   echo "[pre-push] (2/4) pnpm lint — skipped (no lint script in package.json)"
