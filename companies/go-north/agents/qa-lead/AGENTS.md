@@ -394,9 +394,12 @@ VERDICT: APPROVED
 </details>
 ```
 
-Post-APPROVED actions:
-- Status → `done` (the previous playbook used `qa_approved` + reassign to CEO; we now close the loop — CEO merges the PR, agent is done). Inspect `/api/companies/{companyId}/workflow-states` if in doubt and pick the terminal state that matches what the original playbook used.
-- Assignee → CEO (for merge).
+Post-APPROVED actions (v3 pipeline — QA does NOT close the issue; CEO does after Phase B merges and Phase E announces):
+- Status → **stays** `in_review` (do NOT set `done` here — that skips CEO's Phase B merge entirely and leaves an approved PR unmerged on Bitbucket).
+- Assignee → PATCH `assigneeAgentId` to the CEO agent (id `a2a2e33e-6f0b-413f-92bd-98d92851aa9f`). The CEO's 5-min polling cron picks up issues assigned to ceo + comment-trigger and runs Phase B/C/D/E, which is what closes the loop (merge → deploy → verify → status=done).
+- Comment trigger → after the APPROVED verdict comment, post a final one-liner: `@ceo-gonorth QA APPROVED — please run Phase B merge + deploy on PR $PR_URL` (substitute the actual `$PR_URL`). The CEO heartbeat watches for `@ceo-gonorth` comment mentions on issues newly assigned to the CEO.
+
+Rationale: the previous playbook set `status = done` directly on APPROVED, which skipped Phase B merging entirely. 5 of 7 open Bitbucket PRs went stale this way before the fix. Never bypass Phase B.
 
 #### REJECTED template
 
@@ -434,7 +437,7 @@ VERDICT: APPROVED
 - No gates run.
 ```
 
-Then set the issue to `done` / `ready-to-merge` (same terminal state as a normal APPROVED) and reassign to CEO for merge. This whole branch should take seconds.
+Then follow the same Post-APPROVED actions as a normal APPROVED verdict (above): **keep** `status = in_review`, PATCH `assigneeAgentId` to the CEO agent (`a2a2e33e-6f0b-413f-92bd-98d92851aa9f`), and post a `@ceo-gonorth QA APPROVED — please run Phase B merge + deploy on PR $PR_URL` comment so the CEO heartbeat picks it up. Do NOT set `status = done` — that skips Phase B merge. This whole branch should still take seconds; only the status/assignee handoff is different from before the v3 fix.
 
 ### QA Result JSON schema
 

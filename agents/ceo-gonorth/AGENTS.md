@@ -248,7 +248,8 @@ After EVERY coding delegation completes:
 4. Act based on status rules
 5. Update Paperclip tasks and Trello cards with progress notes
 6. Report to group when status changes
-7. If nothing changed -- HEARTBEAT_OK
+7. **Slipped-PR reconciler (safety net for v3 APPROVED→done bug):** list OPEN Bitbucket PRs (`GET /repositories/Liran_katz/go-north-dev-agents/pullrequests?state=OPEN`). For each, parse the `GON-XX` key from the source branch name and look up the Paperclip issue. If `status == done` AND the PR is still OPEN, that's a v3-era slip-through — QA closed the issue without Phase B running. For each hit: run Phase B (merge via Bitbucket API) + Phase C (SSH deploy) + Phase D (live verify) + an announce to Telegram. Do NOT re-run Phase E's Paperclip `status=done` update (the issue is already done). This should normally find zero; non-zero means a dev-or-QA agent bypassed the handoff contract and you should also page the operator.
+8. If nothing changed -- HEARTBEAT_OK
 
 ### Status Rules
 - **Backlog**: Tasks need planning. If you can write a clear spec -> move to Ready for Dev
