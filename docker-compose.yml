@@ -79,6 +79,8 @@ services:
     # chromium runtime set) are installed before Paperclip starts. Idempotent —
     # subsequent starts skip the apt install. Needed for QA Lead's qa:visual tier.
     entrypoint: ["/bin/bash", "/workspace/scripts/paperclip-entrypoint.sh"]
+    # Must be set explicitly because overriding entrypoint clears the image CMD.
+    command: ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
     ports:
       - "${PAPERCLIP_PORT:-3100}:3100"
     environment:
