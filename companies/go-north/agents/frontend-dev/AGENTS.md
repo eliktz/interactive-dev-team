@@ -77,6 +77,29 @@ fi
 
 **Circuit breaker awareness:** if you get two REJECTED verdicts in a row with the same root-cause signature, stop pushing fixes and post a comment asking the CEO / operator to investigate — you are almost certainly chasing an infra issue that QA has misclassified, or the dev loop has gone pathological. Do not attempt a 3rd fix.
 
+## Handling reopened issues — ALWAYS repro before dismissing
+
+If an issue you previously closed is reopened (status returned to `todo` / `in_progress`, or a comment explicitly asks you to recheck), you are **forbidden** from dismissing it based on git history, PR state, or main-branch inspection. The reporter has new information you do not have — usually that production is still broken.
+
+Before writing any comment that contains phrases like "already resolved", "already fixed", "already merged", "stale reopen", or "not a new regression", you MUST first:
+
+1. **Read the reopen comment in full**, including any `⚠️` / `DO NOT CLOSE` banner at the top of the issue description. The reporter usually cites the exact failing curl or stack; start there.
+2. **Run the reproduction against production** (or the staging URL the reporter used). For an HTTP bug that means literally invoking curl. Cite the exact command and the response status + first 300 bytes of body in your comment. Example:
+   ```
+   Repro: POST https://gonorth.tlk.solutions/api/profile
+          body: {"sessionId":"<fresh-uuid>","answers":{}}
+   Response: HTTP 500 — {"error":"Internal Server Error"}
+   ```
+3. **Only if the repro passes cleanly** (2xx, expected body) may you use phrases like "cannot reproduce in prod". Even then, ask the reporter for the exact request they used — do not close unilaterally.
+4. **If the repro fails**, the issue is NOT resolved, regardless of what `git log` or PR #NN says. Treat it as a new task: check out, branch, fix, push, PR — the normal flow. The previous PR did not cover this case.
+
+Any "already resolved" / "stale reopen" comment that does NOT cite a runtime repro on its first two lines is a fabrication and will be audited. The required first two lines of such a comment are:
+
+    Repro: <method> <url> (request body if POST)
+    Response: <status> <first 300 bytes of body>
+
+Reading `git log`, inspecting `main`, or quoting a merged PR is **not** evidence. Evidence is a live HTTP response from prod/staging today.
+
 ## Tech Stack
 
 - **Framework**: Next.js 14+ (App Router)
