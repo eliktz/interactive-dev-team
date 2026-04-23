@@ -14,7 +14,7 @@ This doc covers the env vars, discovery commands, and conventions required by
 | `TRELLO_LIST_IDS` | Minified JSON mapping Paperclip status → Trello list ID. Example: `{"todo":"<id>","in_progress":"<id>","in_review":"<id>","done":"<id>","blocked":"<id>"}` |
 | `PAPERCLIP_API_KEY` | Admin/agent bearer token for Paperclip reads. Will be replaced by `PAPERCLIP_CEO_AGENT_TOKEN` once the CEO is registered as a real Paperclip agent (see AGENTS.md "CEO as Paperclip Agent — Registration Path"). |
 | `PAPERCLIP_COMPANY_ID` | Go-North company ID — `a951bb35-24a9-412a-bbcc-629c5acae619` |
-| `PAPERCLIP_BASE_URL` | Paperclip base URL. Defaults to `http://localhost:3000`. |
+| `PAPERCLIP_BASE_URL` | Paperclip base URL. Defaults to `http://paperclip:3100` (in-cluster service name + correct port). Use `https://paperclip.tlk.solutions` if calling from outside the docker network. `http://localhost:3000` is wrong — paperclip listens on 3100, not 3000. |
 
 ## Discovering board and list IDs
 

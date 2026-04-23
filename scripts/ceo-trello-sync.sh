@@ -8,13 +8,13 @@
 #                            e.g. '{"todo":"<id>","in_progress":"<id>","in_review":"<id>","done":"<id>","blocked":"<id>"}'
 #   PAPERCLIP_API_KEY     — or PAPERCLIP_CEO_AGENT_TOKEN once CEO is a real agent
 #   PAPERCLIP_COMPANY_ID  — a951bb35-24a9-412a-bbcc-629c5acae619 for Go-North
-#   PAPERCLIP_BASE_URL    — default http://localhost:3000
+#   PAPERCLIP_BASE_URL    — default http://paperclip:3100 (in-cluster service name + correct port)
 #
 # Dedup: card description line 1 must begin with [GON-XX] — the sync script
 # searches all cards for this string and upserts instead of recreating.
 
 set -euo pipefail
-PAPERCLIP_BASE_URL="${PAPERCLIP_BASE_URL:-http://localhost:3000}"
+PAPERCLIP_BASE_URL="${PAPERCLIP_BASE_URL:-http://paperclip:3100}"
 
 MISSING=()
 for V in TRELLO_KEY TRELLO_TOKEN TRELLO_BOARD_ID TRELLO_LIST_IDS PAPERCLIP_API_KEY PAPERCLIP_COMPANY_ID; do
