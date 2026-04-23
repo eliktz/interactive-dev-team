@@ -93,6 +93,12 @@ services:
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-paperclip-change-me-in-production}"
       PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
       PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
+      # Hostname allowlist — Paperclip rejects 403 any Host header not in this
+      # list (plus whatever it derives from PAPERCLIP_PUBLIC_URL). Must include
+      # the compose service name (`paperclip`) and loopback so in-cluster
+      # callers (war-room CEO agent, Claude Code) don't hit "Hostname … not
+      # allowed" when they use the internal route. Override via env if needed.
+      PAPERCLIP_ALLOWED_HOSTNAMES: "${PAPERCLIP_ALLOWED_HOSTNAMES:-paperclip,localhost,127.0.0.1}"
       # Git credentials for Paperclip agents to push code
       BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
       GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
