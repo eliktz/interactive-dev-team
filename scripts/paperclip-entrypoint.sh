@@ -45,5 +45,27 @@ else
   echo "[paperclip-init] Playwright deps already present — skipping apt."
 fi
 
+# Self-heal /paperclip ownership before handing off.
+#
+# The upstream docker-entrypoint.sh only runs `chown -R node:node /paperclip`
+# when it remaps the `node` user's UID (USER_UID/USER_GID env). On default-UID
+# hosts (1000:1000) no remap happens, so root-owned files left in the volume
+# stay unreadable by the server (which runs as `node` via gosu).
+#
+# This bites operators who run the paperclip CLI inside the container as root
+# during onboarding — e.g. `sudo docker exec ... pnpm paperclipai onboard ...` —
+# which writes instances/<name>/{.env, config.json, secrets/} as root. The
+# server then crash-loops on every start with EACCES on .env (Agent JWT lookup
+# in startup-banner.ts).
+#
+# Chowning only root-owned files keeps this cheap; nothing is touched on a
+# clean instance.
+if [ -d /paperclip ]; then
+  if find /paperclip -uid 0 -print -quit 2>/dev/null | grep -q .; then
+    echo "[paperclip-init] Self-healing: found root-owned files in /paperclip — chowning to uid 1000."
+    find /paperclip -uid 0 -exec chown 1000:1000 {} + 2>/dev/null || true
+  fi
+fi
+
 # Delegate to the image's original entrypoint with the original CMD
 exec docker-entrypoint.sh "$@"
