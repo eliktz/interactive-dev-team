@@ -1,0 +1,62 @@
+---
+company: "{{COMPANY_SLUG}}"
+version: "1.0.0"
+updated: "{{TIMESTAMP}}"
+owner_agent: "ceo-{{COMPANY_SLUG}}"
+north_star: "{{NORTH_STAR_METRIC}}"
+operator_language: "he"
+---
+
+# {{COMPANY_DISPLAY_NAME}} — Product Spine
+
+> **What this document is.** The single source of truth for what
+> {{COMPANY_DISPLAY_NAME}} is building, why, for whom, and where we are right now.
+> Every persona `@import`s this file via `CLAUDE.md`; `SessionStart` re-injects
+> the last 80 lines before the first turn.
+
+## Mission
+
+{{TWO_TO_FOUR_USER_FACING_SENTENCES_DESCRIBING_THE_PRODUCT}}
+
+## Themes
+
+- **{{THEME_A}}** — outcome for {{WHOM}}: _one paragraph._
+- **{{THEME_B}}** — outcome for {{WHOM}}: _one paragraph._
+- **{{THEME_C}}** — outcome for {{WHOM}}: _one paragraph._
+
+## Milestones (reverse-chronological)
+
+| Date | Milestone | User-facing outcome | Paperclip epic | Trello list |
+|---|---|---|---|---|
+| {{YYYY-MM-DD}} | {{MILESTONE_TITLE}} | {{USER_OUTCOME_PHRASING}} | {{PAPERCLIP_EPIC_ID}} | {{TRELLO_LIST_NAME}} |
+
+## Current State (by lane)
+
+### Product (Galileo, `ceo-{{COMPANY_SLUG}}`)
+_{{WHAT_CEO_IS_DRIVING_THIS_WEEK}}_
+
+### Execution (Captain)
+_{{WHAT_CAPTAIN_IS_DRIVING_THIS_WEEK}}_
+
+### UX (Iris, `ux-{{COMPANY_SLUG}}`)
+_{{WHAT_UX_IS_DRIVING_THIS_WEEK}}_
+
+### Engineering (Paperclip workers)
+_{{ACTIVE_EPICS_WITH_STATUS_AS_BULLETS}}_
+
+## Decisions of Record
+
+| Date | Decision | By | `team_memory` UUID |
+|---|---|---|---|
+| {{YYYY-MM-DD}} | {{DECISION_SUMMARY}} | {{WHO_DECIDED}} | {{TEAM_MEMORY_UUID}} |
+
+## Open Questions
+
+- **{{QUESTION}}** — owner: {{OWNER}}
+
+## Links
+
+- Paperclip: {{PAPERCLIP_URL}}
+- Trello board: {{TRELLO_BOARD_URL}}
+- Repo: {{REPO_URL}}
+- Flattened team-memory view: `companies/{{COMPANY_SLUG}}/TEAM_LEARNINGS.md`
