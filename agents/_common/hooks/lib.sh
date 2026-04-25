@@ -27,8 +27,18 @@ cc_hook_exit() {
 # -----------------------------------------------------------------------------
 cc_log_init() {
   local persona="$1"
-  local dir="${CC_HOOK_LOG_DIR:-/tmp}"
-  mkdir -p "$dir"
+  # M4: prefer /workspace/.hooks-logs/ when /workspace is bind-mounted, so the
+  # paperclip container's m3-ui /ui/hook-health route can read these. Falls
+  # back to /tmp on standalone containers.
+  local dir="${CC_HOOK_LOG_DIR:-}"
+  if [ -z "$dir" ]; then
+    if [ -d /workspace ] && [ -w /workspace ]; then
+      dir="/workspace/.hooks-logs"
+    else
+      dir="/tmp"
+    fi
+  fi
+  mkdir -p "$dir" 2>/dev/null || dir="/tmp"
   CC_LOG_FILE="$dir/hooks-${persona}.log"
   export CC_LOG_FILE
 }
