@@ -274,12 +274,21 @@ for agent_def in "${AGENTS[@]}"; do
     # their CLAUDE.md instructions)
     require_mention="false"
 
+    # Normalize: GONORTH_GROUP_ID must store the canonical signed chat_id
+    # (negative for groups/supergroups). To stay compatible with envs that
+    # historically stored the unsigned form, prepend "-" only when missing.
+    group_chat_id="${GONORTH_GROUP_ID}"
+    case "$group_chat_id" in
+      -*) ;;
+      *)  group_chat_id="-${group_chat_id}" ;;
+    esac
+
     cat > "$state_dir/access.json" << ACCESSEOF
 {
   "dmPolicy": "allowlist",
   "allowFrom": ["${OPERATOR_TELEGRAM_ID:-}"],
   "groups": {
-    "-${GONORTH_GROUP_ID}": {
+    "${group_chat_id}": {
       "requireMention": ${require_mention},
       "allowFrom": []
     }
