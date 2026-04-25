@@ -39,31 +39,42 @@ if [ -f /workspace/dev-activity-feed.ndjson ] ; then
   tail -n 100 /workspace/dev-activity-feed.ndjson | grep -i ceo-gonorth >>"$SAMPLE" 2>/dev/null || true
 fi
 
-TOTAL="$(wc -l <"$SAMPLE" | tr -d ' ')"
-if [ "$TOTAL" = "0" ] ; then
+# Helper: take a string that should be an integer (might be empty / multi-line),
+# return the first integer or 0.
+_to_int() {
+  local v="${1:-0}"
+  v="$(printf '%s' "$v" | head -1 | tr -d ' \n\r')"
+  case "$v" in
+    ''|*[!0-9]*) echo 0 ;;
+    *) echo "$v" ;;
+  esac
+}
+
+TOTAL="$(_to_int "$(wc -l <"$SAMPLE" 2>/dev/null)")"
+if [ "$TOTAL" -eq 0 ] ; then
   TOTAL=1
 fi
 
 # 1. tech-leak%
-TECH_HITS="$(grep -ciE '(commit|sha|http [0-9]{3}|/api/|src/|pnpm|npm i |yarn add|circuit_breaker|branch|main@)' "$SAMPLE" 2>/dev/null || echo 0)"
+TECH_HITS="$(_to_int "$(grep -ciE '(commit|sha|http [0-9]{3}|/api/|src/|pnpm|npm i |yarn add|circuit_breaker|branch|main@)' "$SAMPLE" 2>/dev/null)")"
 TECH_PCT=$(( (TECH_HITS * 100) / TOTAL ))
 
 # 2. signed-chrome%
-CHROME_HITS="$(grep -cE '^(\xf0\x9f\xa7\xad|\xf0\x9f\x8e\xa8|\xf0\x9f\xa7\xa6) (PM|UX|Captain) ·' "$SAMPLE" 2>/dev/null || echo 0)"
+CHROME_HITS="$(_to_int "$(grep -cE '^(\xf0\x9f\xa7\xad|\xf0\x9f\x8e\xa8|\xf0\x9f\xa7\xa6) (PM|UX|Captain) ·' "$SAMPLE" 2>/dev/null)")"
 CHROME_PCT=$(( (CHROME_HITS * 100) / TOTAL ))
 
 # 3. mix% (Hebrew + Latin chars in same line)
-MIX_HITS="$(grep -cE '[א-ת].*[A-Za-z]|[A-Za-z].*[א-ת]' "$SAMPLE" 2>/dev/null || echo 0)"
+MIX_HITS="$(_to_int "$(grep -cE '[א-ת].*[A-Za-z]|[A-Za-z].*[א-ת]' "$SAMPLE" 2>/dev/null)")"
 MIX_PCT=$(( (MIX_HITS * 100) / TOTAL ))
 
 # 4. bold-overuse% (>2 *...* spans on a single line)
-BOLD_HITS="$(awk '{ n=gsub(/\*[^*]+\*/,"&"); if (n>2) c++ } END {print c+0}' "$SAMPLE" 2>/dev/null || echo 0)"
+BOLD_HITS="$(_to_int "$(awk '{ n=gsub(/\*[^*]+\*/,"&"); if (n>2) c++ } END {print c+0}' "$SAMPLE" 2>/dev/null)")"
 BOLD_PCT=$(( (BOLD_HITS * 100) / TOTAL ))
 
 # 5. trello-product-framed% — proxy: lines containing "trello" that ALSO contain
 #    a "user-facing"/"users get"/"חוויה" cue (product framing).
-TRELLO_LINES="$(grep -c -i trello "$SAMPLE" 2>/dev/null || echo 0)"
-TRELLO_PRODFRAMED="$(grep -i trello "$SAMPLE" 2>/dev/null | grep -ciE '(users? get|user-facing|חוויה|תועלת|outcome)' 2>/dev/null || echo 0)"
+TRELLO_LINES="$(_to_int "$(grep -c -i trello "$SAMPLE" 2>/dev/null)")"
+TRELLO_PRODFRAMED="$(_to_int "$(grep -i trello "$SAMPLE" 2>/dev/null | grep -ciE '(users? get|user-facing|חוויה|תועלת|outcome)' 2>/dev/null)")"
 if [ "$TRELLO_LINES" -gt 0 ] ; then
   TRELLO_PCT=$(( (TRELLO_PRODFRAMED * 100) / TRELLO_LINES ))
 else
