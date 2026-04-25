@@ -145,7 +145,7 @@ async function pollOnce() {
     // never miss a comment whose UUID happens to sort lower than a previous
     // one. The id::text tiebreaker keeps progress monotonic across rows
     // sharing the same created_at.
-    q = `SELECT id, body, created_at,
+    q = `SELECT id, body, created_at, created_at::text AS created_at_text,
                  ${cols.has("issue_id") ? "issue_id" : "NULL::text"} AS issue_id,
                  ${cols.has("author_agent_id") ? "author_agent_id" : "NULL::text"} AS author_agent_id
           FROM issue_comments
@@ -155,10 +155,12 @@ async function pollOnce() {
     args = [cursor.ts, cursor.id || ""];
   } else {
     // First boot or legacy cursor — seed cursor at current max(created_at).
+    // M5-fixup: cast to ::text so we capture microsecond precision (rounded
+    // ms would let later rows sharing that ms slip through).
     const r = await c.query(
-      `SELECT COALESCE(MAX(created_at), now()) AS m FROM issue_comments`,
+      `SELECT COALESCE(MAX(created_at)::text, now()::text) AS m FROM issue_comments`,
     );
-    const m = r.rows[0] && r.rows[0].m ? new Date(r.rows[0].m).toISOString() : new Date().toISOString();
+    const m = r.rows[0] && r.rows[0].m ? String(r.rows[0].m) : new Date().toISOString();
     writeCursor(m, "");
     return;
   }
@@ -168,7 +170,9 @@ async function pollOnce() {
   let lastId = cursor.id || "";
   let matched = 0;
   for (const r of rows) {
-    lastTs = new Date(r.created_at).toISOString();
+    // M5-fixup: use PG-side ::text so we keep microsecond precision; otherwise
+    // JS Date rounds to ms and the strict tuple comparison re-picks the row.
+    lastTs = r.created_at_text || new Date(r.created_at).toISOString();
     lastId = String(r.id);
     if (!r.body) continue;
     if (!SHIP_RE.test(r.body)) continue;

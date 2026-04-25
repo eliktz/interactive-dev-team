@@ -131,16 +131,40 @@ if [ -d /paperclip/m3-ui ] && [ -f /paperclip/m3-ui/server.js ]; then
   echo "[paperclip-init] launched m3-ui on :3101"
 fi
 
-# M4 A2: launch issue-comments watcher (poller → activity_feed + spillover).
+# M4 A2 (scenario5-fixups): supervised issue-comments watcher.
+# Idempotency: check pidfile + /proc — if a previous watcher is still alive,
+# leave it alone. Otherwise launch a fresh one and record its PID. Output goes
+# to /paperclip/m4-watchers/watcher.log so the operator can tail it without
+# digging into /tmp. Container restart-policy handles full container restarts;
+# this block handles entrypoint re-runs (e.g. manual `restart` via paperclip's
+# own supervisor) without spawning duplicates.
 if [ -d /paperclip/m4-watchers ] && [ -f /paperclip/m4-watchers/issue-comments-watcher.js ]; then
-  (
-    cd /paperclip/m4-watchers \
-    && M4_WATCHER_PG_URL="${M4_WATCHER_PG_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}" \
-       M4_WATCHER_FEED="${M4_WATCHER_FEED:-/workspace/dev-activity-feed.ndjson}" \
-       NODE_PATH=/app/node_modules/.pnpm/pg@8.18.0/node_modules \
-       nohup node issue-comments-watcher.js >>/tmp/m4-watcher.log 2>&1 &
-  )
-  echo "[paperclip-init] launched m4 issue-comments watcher"
+  WATCHER_PID_FILE="/paperclip/m4-watchers/watcher.pid"
+  WATCHER_LOG="/paperclip/m4-watchers/watcher.log"
+  WATCHER_ALIVE=0
+  if [ -f "$WATCHER_PID_FILE" ]; then
+    WATCHER_OLD_PID="$(cat "$WATCHER_PID_FILE" 2>/dev/null || echo)"
+    if [ -n "$WATCHER_OLD_PID" ] && [ -d "/proc/$WATCHER_OLD_PID" ]; then
+      # Confirm the live process is still our watcher (cmdline match) before
+      # treating it as alive — avoids a stale PID that has been recycled.
+      if grep -q issue-comments-watcher "/proc/$WATCHER_OLD_PID/cmdline" 2>/dev/null; then
+        WATCHER_ALIVE=1
+      fi
+    fi
+  fi
+  if [ "$WATCHER_ALIVE" = "1" ]; then
+    echo "[paperclip-init] m4 watcher already alive (pid=$WATCHER_OLD_PID) — skip launch"
+  else
+    (
+      cd /paperclip/m4-watchers \
+      && M4_WATCHER_PG_URL="${M4_WATCHER_PG_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}" \
+         M4_WATCHER_FEED="${M4_WATCHER_FEED:-/workspace/dev-activity-feed.ndjson}" \
+         NODE_PATH=/app/node_modules/.pnpm/pg@8.18.0/node_modules \
+         nohup node issue-comments-watcher.js >>"$WATCHER_LOG" 2>&1 &
+      echo $! > "$WATCHER_PID_FILE"
+    )
+    echo "[paperclip-init] launched m4 issue-comments watcher (pid=$(cat $WATCHER_PID_FILE 2>/dev/null) log=$WATCHER_LOG)"
+  fi
 fi
 
 # M4: install paperclip cron (forgetting-detector + cost-alerts) — best-effort.
