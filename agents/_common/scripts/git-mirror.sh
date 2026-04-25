@@ -61,8 +61,11 @@ fi
 # Ensure destination exists.
 mkdir -p "$REPO_MEM_DIR"
 
-# 2. flock the git index.
-LOCK_FILE="${REPO_ROOT}/.git/index.lock"
+# 2. flock — use a dedicated path under /tmp so we don't collide with git's
+#    own internal /workspace/.git/index.lock (QG3 finding: previous code
+#    redirected `exec 9>` to git's lock file, then every subsequent `git add`
+#    failed with "Unable to create '.git/index.lock': File exists").
+LOCK_FILE="${GIT_MIRROR_LOCK_FILE:-/tmp/git-mirror-${PERSONA}.lock}"
 if [ ! -d "${REPO_ROOT}/.git" ] ; then
   _gm_log "$PERSONA" warn "no .git at $REPO_ROOT — rsync only, skipping commit"
   if command -v rsync >/dev/null 2>&1 ; then

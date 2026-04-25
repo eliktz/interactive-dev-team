@@ -14,6 +14,17 @@
 
 set -e
 
+# M4 Step 0: ensure psql client present for operator-side debugging of team_memory.
+# Embedded-postgres bundle ships only initdb/pg_ctl/postgres — no client.
+if ! command -v psql >/dev/null 2>&1; then
+  echo "[paperclip-init] Installing postgresql-client (psql)..."
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      postgresql-client \
+    >/tmp/apt-install-psql.log 2>&1 \
+    || echo "[paperclip-init] psql install FAILED — see /tmp/apt-install-psql.log"
+fi
+
 if ! ldconfig -p 2>/dev/null | grep -q "libglib-2.0.so.0"; then
   echo "[paperclip-init] Installing Playwright Linux system deps (first boot or fresh container)..."
   DEBIAN_FRONTEND=noninteractive apt-get update -qq
@@ -65,6 +76,36 @@ if [ -d /paperclip ]; then
     echo "[paperclip-init] Self-healing: found root-owned files in /paperclip — chowning to uid 1000."
     find /paperclip -uid 0 -exec chown 1000:1000 {} + 2>/dev/null || true
   fi
+fi
+
+# M3 sidecars: launch mcp-team-memory + m3-ui in the background BEFORE handing
+# off to Paperclip's entrypoint. Both are Node servers that listen on Docker-
+# network-only ports (7077 + 3101) and read the same embedded PG.
+# Token is rotated on first boot if missing; persists in /paperclip volume.
+if [ -d /paperclip/mcp-team-memory ] && [ -f /paperclip/mcp-team-memory/server.js ]; then
+  if [ ! -f /paperclip/mcp-team-memory/token ]; then
+    head -c 24 /dev/urandom | xxd -p > /paperclip/mcp-team-memory/token 2>/dev/null \
+      || (cat /proc/sys/kernel/random/uuid; cat /proc/sys/kernel/random/uuid) | tr -d '-\n' > /paperclip/mcp-team-memory/token
+  fi
+  (
+    cd /paperclip/mcp-team-memory \
+    && MCP_TEAM_MEMORY_TOKEN="$(cat token)" \
+       MCP_TEAM_MEMORY_PG_URL="${MCP_TEAM_MEMORY_PG_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}" \
+       NODE_PATH=/app/node_modules/.pnpm/pg@8.18.0/node_modules \
+       nohup node server.js >>/tmp/mcp-team-memory.log 2>&1 &
+  )
+  echo "[paperclip-init] launched mcp-team-memory on :7077"
+fi
+
+if [ -d /paperclip/m3-ui ] && [ -f /paperclip/m3-ui/server.js ]; then
+  (
+    cd /paperclip/m3-ui \
+    && M3_UI_PG_URL="${M3_UI_PG_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}" \
+       M3_UI_ACTIVITY_NDJSON="${M3_UI_ACTIVITY_NDJSON:-/workspace/dev-activity-feed.ndjson}" \
+       NODE_PATH=/app/node_modules/.pnpm/pg@8.18.0/node_modules \
+       nohup node server.js >>/tmp/m3-ui.log 2>&1 &
+  )
+  echo "[paperclip-init] launched m3-ui on :3101"
 fi
 
 # Delegate to the image's original entrypoint with the original CMD

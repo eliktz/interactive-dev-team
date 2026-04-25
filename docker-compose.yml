@@ -60,6 +60,9 @@ services:
       PAPERCLIP_COMPANY_ID: ${PAPERCLIP_COMPANY_ID:-}
     volumes:
       - war-room-state:/home/claude/.claude
+      # M3 bind-mount: host repo into container at /workspace (RW required for git-mirror.sh hook)
+      # NOTE: on VM, replace this path with /home/ravi/interactive-dev-team
+      - .:/workspace:rw
       # Shared project repo — same volume as Paperclip container
       - project-repo:/workspace/project
       # SSH key for deploying to Plesk (optional, mount if available)
@@ -109,6 +112,8 @@ services:
       GIT_COMMITTER_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@gonorth.ai}
     volumes:
       - paperclip-data:/paperclip
+      # M3 codex warm-start: persist codex memories across restarts
+      - paperclip-codex-memory:/paperclip/.codex/memories
       - ./companies:/paperclip/companies:ro
       - ./config/codex-config.toml:/paperclip/.codex/config.toml:ro
       # Shared project repo — Paperclip agents can read/write/push code
@@ -139,3 +144,4 @@ volumes:
   war-room-state:
   paperclip-data:
   project-repo:
+  paperclip-codex-memory:
