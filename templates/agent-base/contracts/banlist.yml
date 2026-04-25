@@ -1,0 +1,114 @@
+# Banlist YAML — extracted from pm-behavior.md §1.2 / §2.2 (contract version 1.1.0)
+# Read by:  agents/_common/gates/pre-send-gate.sh
+# Spec:     templates/agent-base/contracts/pm-behavior.md
+#
+# Categories:
+#   hard       — operator-facing message containing any of these is a HARD violation
+#                (block in `block` mode; rewrite in `rewrite` mode; log in `log` mode).
+#   soft       — operator-facing match is a SOFT violation (rewrite in any mode that
+#                supports rewrite; never block).
+#   whitelist_proper_nouns — tokens that may appear in EITHER script and never count
+#                            against the §1.2b language-consistency check.
+#
+# Match semantics:
+#   - case-insensitive
+#   - regex (POSIX ERE) unless the entry is a plain literal
+#   - whole-word-ish; the gate wraps each pattern with sensible boundaries
+#
+# TODO(banlist-he): add a Hebrew-mirror banlist file at
+#   templates/agent-base/contracts/banlist-he.yml
+# Owner: Avi + PM (per warroom-quality-plan-output / external-deps roadmap #6).
+# Until then, Hebrew register-leak detection is best-effort via the script-mix
+# rule in §1.2b (E2 language-consistency check).
+
+version: "1.1.0"
+source_contract: "pm-behavior.md"
+last_updated: "2026-04-25"
+
+# ----------------------------------------------------------------------------
+# HARD violations — message must NOT ship as-is to operator audience.
+# ----------------------------------------------------------------------------
+hard:
+  # --- HTTP / API tokens (pm-behavior §2.2 cat 1) ---
+  - 'PATCH /api/[A-Za-z0-9_/.-]+'
+  - 'GET /api/[A-Za-z0-9_/.-]+'
+  - 'POST /api/[A-Za-z0-9_/.-]+'
+  - 'PUT /api/[A-Za-z0-9_/.-]+'
+  - 'DELETE /api/[A-Za-z0-9_/.-]+'
+  - 'HTTP 2[0-9]{2}'
+  - 'HTTP 4[0-9]{2}'
+  - 'HTTP 5[0-9]{2}'
+
+  # --- Commit / PR / SHA (pm-behavior §2.2 cat 12-15) ---
+  - 'commit [a-f0-9]{7,40}'
+  - '\b[a-f0-9]{7,40}\b'         # raw 7-40 hex SHA
+  - '\bPR #[0-9]+\b'
+  - 'pull request'
+  - 'merged to main'
+  - 'merged branch'
+  - 'deployed to prod(uction)?'
+
+  # --- Paths (pm-behavior §2.2 cat 10-11) ---
+  - 'src/[A-Za-z0-9_/.-]+\.[A-Za-z]{1,5}'
+  - '/workspace/[A-Za-z0-9_/.-]+'
+  - 'node_modules'
+  - '\bfeat/GON-[0-9]+\b'
+  - '\brelease/v[0-9]+'
+  - '\borigin/(main|master)\b'
+
+  # --- Agent jargon (pm-behavior §2.2 cat 17-20) ---
+  - '@backend-dev'
+  - '@frontend-dev'
+  - '@qa-dev'
+  - 'author_agent_id'
+  - 'admin@[A-Za-z0-9_.-]+\.dev'
+  - 'CronCreate'
+  - '/compact'
+  - '"verdict":"[A-Za-z_-]+"'
+
+# ----------------------------------------------------------------------------
+# SOFT violations — register-noise; rewrite if possible, never block.
+# ----------------------------------------------------------------------------
+soft:
+  # --- Framework / library names (pm-behavior §2.2 cat 6-9) ---
+  - 'Vercel'
+  - 'Bitbucket'
+  - 'GitHub Actions'
+  - 'useEffect'
+  - '\bfetcher\b'
+  - '\bendpoint\b'
+  - '\bpnpm\b'
+  - '\bnpm install\b'
+  - '\byarn add\b'
+  - '\bdocker\b'
+  - '\betag\b'
+  - 'circuit[_ ]breaker'
+  - 'INFRA_BLOCKED'
+
+  # --- Dev verbs that should be replaced with user-outcome phrasing ---
+  - '\bdeployed\b'
+  - '\brefactored\b'
+  - '\brebased\b'
+  - '\bcherry-picked\b'
+
+  # --- Build / shell artefacts ---
+  - '\btmux\b'
+  - '\bcron\b'
+  - 'env var'
+
+# ----------------------------------------------------------------------------
+# WHITELIST proper nouns — never count toward §1.2b script-mix.
+# Per pm-behavior §1.2b paragraph "Whitelist".
+# ----------------------------------------------------------------------------
+whitelist_proper_nouns:
+  - 'Paperclip'
+  - 'Trello'
+  - 'GitHub'
+  - 'Bitbucket'
+  - 'Telegram'
+  - 'Galileo'
+  - 'Iris'
+  - 'Captain'
+  - 'GON-[0-9]+'           # Go-North issue refs (Paperclip)
+  # Per-company whitelist additions live at
+  # /paperclip/companies/<company>/contracts/pm-behavior-language-whitelist.md

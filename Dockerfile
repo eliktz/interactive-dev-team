@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
       rsync \
       openssh-client \
+      jq \
     && rm -rf /var/lib/apt/lists/*
 
 # --- install ttyd from GitHub releases (detect arch) ---

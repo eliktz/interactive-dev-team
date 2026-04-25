@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__telegram__sendMessage",
+  "tool_input": {
+    "chat_id": "-5119771308",
+    "text": "עדכון יומי: shipped the checkout flow today and the pricing tier needs your decision before EOD"
+  }
+}

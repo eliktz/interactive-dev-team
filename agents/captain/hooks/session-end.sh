@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# SessionEnd hook — rsync container memory into the git-tracked persona dir,
-# commit under flock, and (in M3+) POST to paperclip team-memory flush endpoint.
-# M1: flush endpoint is pending, so we just log.
+# SessionEnd hook — delegates the memory-mirror + commit to the shared
+# git-mirror.sh (M2 build). Keeps a thin wrapper here so per-persona env
+# overrides remain expressible.
+#
+# In M3+, this hook will additionally POST to the paperclip team-memory
+# flush endpoint.
 
 set -euo pipefail
 
@@ -18,48 +21,25 @@ cc_log "$PERSONA" "SessionEnd fire"
 CC_STDIN_PAYLOAD="$(cc_read_stdin || true)"
 : "${CC_STDIN_PAYLOAD:=}"
 
-CONTAINER_MEM_DIR="${CC_CONTAINER_MEMORY_DIR:-/home/claude/.claude/projects/-workspace-agents-${PERSONA}/memory}"
-REPO_MEM_DIR="${PERSONA_DIR}/memory"
+# Container source: the live persona memory dir. Honour the legacy override
+# so existing operators with custom layouts keep working.
+export CONTAINER_MEM_DIR="${CC_CONTAINER_MEMORY_DIR:-/workspace/agents/${PERSONA}/memory}"
+
+# Repo root: derive from the hook path. The shared script also derives this
+# from its own path; we set it here for clarity.
 REPO_ROOT="$(cd "${PERSONA_DIR}/../.." && pwd)"
-LOCK_FILE="${REPO_ROOT}/.git/index.lock"
+export GIT_MIRROR_REPO_ROOT="$REPO_ROOT"
+export GIT_MIRROR_LOG="${CC_LOG_FILE:-/tmp/hooks-${PERSONA}.log}"
 
-mkdir -p "$REPO_MEM_DIR"
+GIT_MIRROR_SH="${REPO_ROOT}/agents/_common/scripts/git-mirror.sh"
 
-# 1. rsync container memory → repo memory (best-effort; skip if source absent)
-if [ -d "$CONTAINER_MEM_DIR" ]; then
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete "${CONTAINER_MEM_DIR}/" "${REPO_MEM_DIR}/" \
-      >>"$CC_LOG_FILE" 2>&1 || cc_log "$PERSONA" "rsync warning (non-fatal)"
-  else
-    cc_log "$PERSONA" "rsync missing — using cp -R fallback"
-    cp -R "${CONTAINER_MEM_DIR}/." "${REPO_MEM_DIR}/" 2>>"$CC_LOG_FILE" || true
-  fi
+if [ -x "$GIT_MIRROR_SH" ] ; then
+  cc_log "$PERSONA" "session-end: invoking git-mirror.sh"
+  "$GIT_MIRROR_SH" "$PERSONA" \
+    >>"$CC_LOG_FILE" 2>&1 \
+    || cc_log "$PERSONA" "git-mirror returned non-zero (non-fatal)"
 else
-  cc_log "$PERSONA" "container memory dir absent ($CONTAINER_MEM_DIR) — skipping sync"
-fi
-
-# 2. git add + commit under flock. Non-fatal if nothing changed.
-TS="$(date -u +%FT%TZ)"
-COMMIT_MSG="[${PERSONA}] session end ${TS}"
-
-if [ -d "${REPO_ROOT}/.git" ]; then
-  (
-    # Serialise commits across concurrent persona SessionEnd hooks.
-    if command -v flock >/dev/null 2>&1; then
-      exec 9>"$LOCK_FILE"
-      flock -w 10 9 || { cc_log "$PERSONA" "flock timeout — skipping commit"; exit 0; }
-    fi
-    cd "$REPO_ROOT"
-    git add "agents/${PERSONA}/memory" 2>>"$CC_LOG_FILE" || true
-    if ! git diff --cached --quiet 2>/dev/null; then
-      git commit --no-verify -m "$COMMIT_MSG" >>"$CC_LOG_FILE" 2>&1 \
-        || cc_log "$PERSONA" "git commit failed (non-fatal)"
-    else
-      cc_log "$PERSONA" "no memory changes to commit"
-    fi
-  ) || cc_log "$PERSONA" "commit subshell returned non-zero (non-fatal)"
-else
-  cc_log "$PERSONA" "no .git at $REPO_ROOT — skipping commit"
+  cc_log "$PERSONA" "git-mirror.sh missing at $GIT_MIRROR_SH — backwards-compat no-op"
 fi
 
 # 3. POST to paperclip team-memory flush — M3 only.

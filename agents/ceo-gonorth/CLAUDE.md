@@ -9,8 +9,10 @@
   - PROJECT_URL: Production deployment URL
 -->
 
+@import IDENTITY.md
 @import SOUL.md
 @import AGENTS.md
 @import TOOLS.md
 @import ../../config/paperclip.md
 @import ../../config/trello.md
+@import ../../templates/agent-base/contracts/pm-behavior.md

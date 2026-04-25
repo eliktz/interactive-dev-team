@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__bitbucket__add_pr_comment",
+  "tool_input": {
+    "pullRequestId": 42,
+    "body": "Refactored useEffect to use the new fetcher. Deployed to prod at commit 7d91311. PR #37 ready for review."
+  }
+}

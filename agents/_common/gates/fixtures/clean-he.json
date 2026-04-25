@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__telegram__sendMessage",
+  "tool_input": {
+    "chat_id": "-5119771308",
+    "text": "🟢 שוחרר היום תהליך הצ'קאאוט. *החלטה נדרשת:* תמחור עד 18:00. קישור: https://trello.com/c/abc"
+  }
+}
