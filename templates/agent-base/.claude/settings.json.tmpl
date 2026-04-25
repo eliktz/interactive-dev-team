@@ -1,0 +1,86 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /workspace/agents/{{COMPANY_SLUG}}-{{PERSONA_SLUG}}/hooks/session-start.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /workspace/agents/{{COMPANY_SLUG}}-{{PERSONA_SLUG}}/hooks/pre-compact.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /workspace/agents/{{COMPANY_SLUG}}-{{PERSONA_SLUG}}/hooks/session-end.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /workspace/agents/{{COMPANY_SLUG}}-{{PERSONA_SLUG}}/hooks/user-prompt-submit.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /workspace/agents/{{COMPANY_SLUG}}-{{PERSONA_SLUG}}/hooks/pre-tool-use-signed-chrome.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(mcp__plugin_telegram_telegram__|mcp__telegram__|mcp__trello__|mcp__trello_trello__|mcp__paperclip__|Bash$)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "GATE_MODE=log PERSONA={{COMPANY_SLUG}}-{{PERSONA_SLUG}} TONE_LOG=/tmp/tone-rewrites.log bash /workspace/agents/_common/gates/pre-send-gate.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /workspace/agents/{{COMPANY_SLUG}}-{{PERSONA_SLUG}}/hooks/stop-append-activity.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

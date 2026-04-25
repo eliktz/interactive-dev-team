@@ -22,7 +22,10 @@ CTX_FILE="$(mktemp -t "cc-session-start-${PERSONA}.XXXXXX")"
 trap 'rm -f "$CTX_FILE"' EXIT
 
 MEM_DIR="${PERSONA_DIR}/memory"
-SPINE_PATH="${CC_PRODUCT_SPINE_PATH:-${PERSONA_DIR}/../../companies/go-north/PRODUCT-SPINE.md}"
+# M5: spine path resolved per-company via cc_company_dir helper. Falls back to
+# go-north for legacy personas (ceo-gonorth, captain, ux-gonorth).
+COMPANY_DIR="$(cc_company_dir "$PERSONA" "$PERSONA_DIR")"
+SPINE_PATH="${CC_PRODUCT_SPINE_PATH:-${COMPANY_DIR}/PRODUCT-SPINE.md}"
 IDENTITY_PATH="${PERSONA_DIR}/IDENTITY.md"
 
 # Pull the "when_to_speak" rule from IDENTITY.md frontmatter so it sits at the

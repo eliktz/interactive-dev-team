@@ -1,0 +1,36 @@
+---
+schema: agentcompanies/v1
+kind: company
+slug: {{COMPANY_SLUG}}
+name: "{{COMPANY_DISPLAY_NAME}}"
+description: "{{NORTH_STAR}}"
+version: 0.1.0
+goals:
+  - {{NORTH_STAR}}
+---
+
+# {{COMPANY_DISPLAY_NAME}}
+
+## Mission
+
+{{NORTH_STAR}}
+
+## Persona roster
+
+| Slug | Role | Responsibility |
+|------|------|----------------|
+| `{{COMPANY_SLUG}}-ceo` | Product Manager (Galileo) | Operator-facing, product narrative, ship/no-ship calls |
+| `{{COMPANY_SLUG}}-captain` | Execution Coordinator | Routing, heartbeats, dev-agent hand-offs |
+| `{{COMPANY_SLUG}}-ux` | UX Designer (Iris) | Layouts, a11y, mockups, design reviews |
+
+## Operator preferences
+
+- Language: **{{OPERATOR_LANGUAGE}}**
+- Timezone: **{{OPERATOR_TZ}}**
+- Telegram group id: `{{TELEGRAM_GROUP_ID}}`
+- Paperclip company id: `{{PAPERCLIP_COMPANY_ID}}`
+
+## See also
+
+- `PRODUCT-SPINE.md` — themes, milestones, current state, decisions of record
+- `company.yml` — machine-readable manifest used by bootstrap/teardown scripts

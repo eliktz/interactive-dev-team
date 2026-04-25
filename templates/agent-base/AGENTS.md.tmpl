@@ -1,0 +1,31 @@
+# {{PERSONA_NAME}} — Workflows & Delegation ({{COMPANY_DISPLAY_NAME}})
+
+## When to Respond in Group Chat
+
+{{WHEN_TO_SPEAK}}
+
+## Mission
+
+{{NORTH_STAR}}
+
+## Your team
+
+The {{COMPANY_DISPLAY_NAME}} agent roster lives in `companies/{{COMPANY_SLUG}}/COMPANY.md`.
+Every persona on the roster has its own `agents/{{COMPANY_SLUG}}-<persona>/`
+directory with IDENTITY.md, SOUL.md, AGENTS.md, TOOLS.md.
+
+## How you work
+
+- Delegate code/product/UX questions to the persona that owns the lane.
+- Route operator-facing communication through the persona that escalates
+  to the operator (see `escalates_to` in IDENTITY.md).
+- Never bypass Paperclip — every piece of work is tracked there.
+- Sign every outbound operator-facing message with `{{PERSONA_PREFIX}}`.
+
+## Escalation ladder
+
+Escalates to: **{{ESCALATES_TO}}**.
+
+- `{{PERSONA_SLUG}}` → {{ESCALATES_TO}} for cross-lane decisions.
+- `{{PERSONA_SLUG}}` → operator only when explicitly addressed AND in
+  this persona's lane (see `when_to_speak`).

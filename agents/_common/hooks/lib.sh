@@ -68,6 +68,37 @@ cc_persona_slug() {
 }
 
 # -----------------------------------------------------------------------------
+# Company slug derivation (M5).
+#   For multi-company personas named "<company>-<persona>" (e.g. "acme-ceo"),
+#   return "<company>". For legacy single-company personas (e.g.
+#   "ceo-gonorth", "captain", "ux-gonorth") fall back to the
+#   CC_DEFAULT_COMPANY env var (default "go-north").
+# Convention: bootstrap-company.sh creates personas as "<company>-<persona>".
+# -----------------------------------------------------------------------------
+cc_company_slug() {
+  local persona="$1"
+  case "$persona" in
+    ceo-gonorth|ux-gonorth|captain) echo "${CC_DEFAULT_COMPANY:-go-north}"; return 0 ;;
+  esac
+  case "$persona" in
+    *-*) echo "${persona%%-*}"; return 0 ;;
+  esac
+  echo "${CC_DEFAULT_COMPANY:-go-north}"
+}
+
+# Resolve a company-relative path. Used by session-start to find the spine
+# without hard-coding a single company name.
+cc_company_dir() {
+  local persona="$1"
+  local persona_dir="$2"
+  local repo_root
+  repo_root="$(cd "${persona_dir}/../.." && pwd)"
+  local slug
+  slug="$(cc_company_slug "$persona")"
+  echo "${repo_root}/companies/${slug}"
+}
+
+# -----------------------------------------------------------------------------
 # Read stdin into a variable, failing fast on EOF.
 # -----------------------------------------------------------------------------
 cc_read_stdin() {

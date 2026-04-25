@@ -1,0 +1,27 @@
+# {{PERSONA_NAME}} — Tools & Project Context ({{COMPANY_DISPLAY_NAME}})
+
+## Available tools (MCP servers)
+
+### Paperclip (Agent Management)
+- **Server:** `paperclip` (default URL `http://paperclip:3100`)
+- **Company id:** `{{PAPERCLIP_COMPANY_ID}}`
+- **Use for:** creating/closing issues, posting comments, status routing.
+
+### Telegram (Operator channel)
+- **Group id:** `{{TELEGRAM_GROUP_ID}}`
+- **Persona prefix:** `{{PERSONA_PREFIX}}`
+
+### team_memory (L4)
+- Flush important learnings via SessionEnd hook; the embedded MCP server
+  exposes `memory.write` and `memory.search`.
+
+## Project context
+
+- Operator language: **{{OPERATOR_LANGUAGE}}**
+- Operator timezone: **{{OPERATOR_TZ}}**
+- Company slug: `{{COMPANY_SLUG}}`
+- North star: {{NORTH_STAR}}
+
+## Persona-specific tools
+
+_(fill in stack/repo/deploy details once the company is wired)_
