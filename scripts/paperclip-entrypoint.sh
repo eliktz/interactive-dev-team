@@ -78,10 +78,22 @@ if [ -d /paperclip ]; then
   fi
 fi
 
-# M3 sidecars: launch mcp-team-memory + m3-ui in the background BEFORE handing
-# off to Paperclip's entrypoint. Both are Node servers that listen on Docker-
-# network-only ports (7077 + 3101) and read the same embedded PG.
-# Token is rotated on first boot if missing; persists in /paperclip volume.
+# M3+M4 sidecars: install from /workspace/sidecars/ (git-tracked) into the
+# /paperclip volume on every boot — file copies are idempotent and cheap.
+# Then launch them in the background BEFORE handing off to Paperclip's
+# entrypoint. Listen on Docker-network-only ports (7077 + 3101) and read
+# the same embedded PG. Token is rotated on first boot if missing; persists
+# in /paperclip volume.
+if [ -d /workspace/sidecars ] ; then
+  for sub in mcp-team-memory m3-ui m4-watchers ; do
+    if [ -d /workspace/sidecars/$sub ] ; then
+      mkdir -p /paperclip/$sub
+      cp -f /workspace/sidecars/$sub/* /paperclip/$sub/ 2>/dev/null || true
+    fi
+  done
+  echo "[paperclip-init] synced sidecars from /workspace/sidecars → /paperclip"
+fi
+
 if [ -d /paperclip/mcp-team-memory ] && [ -f /paperclip/mcp-team-memory/server.js ]; then
   if [ ! -f /paperclip/mcp-team-memory/token ]; then
     head -c 24 /dev/urandom | xxd -p > /paperclip/mcp-team-memory/token 2>/dev/null \
@@ -106,6 +118,24 @@ if [ -d /paperclip/m3-ui ] && [ -f /paperclip/m3-ui/server.js ]; then
        nohup node server.js >>/tmp/m3-ui.log 2>&1 &
   )
   echo "[paperclip-init] launched m3-ui on :3101"
+fi
+
+# M4 A2: launch issue-comments watcher (poller → activity_feed + spillover).
+if [ -d /paperclip/m4-watchers ] && [ -f /paperclip/m4-watchers/issue-comments-watcher.js ]; then
+  (
+    cd /paperclip/m4-watchers \
+    && M4_WATCHER_PG_URL="${M4_WATCHER_PG_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}" \
+       M4_WATCHER_FEED="${M4_WATCHER_FEED:-/workspace/dev-activity-feed.ndjson}" \
+       NODE_PATH=/app/node_modules/.pnpm/pg@8.18.0/node_modules \
+       nohup node issue-comments-watcher.js >>/tmp/m4-watcher.log 2>&1 &
+  )
+  echo "[paperclip-init] launched m4 issue-comments watcher"
+fi
+
+# M4: install paperclip cron (forgetting-detector + cost-alerts) — best-effort.
+if [ -f /workspace/scripts/m4-cron/install-crons.sh ]; then
+  bash /workspace/scripts/m4-cron/install-crons.sh 2>/dev/null || \
+    echo "[paperclip-init] M4 cron install skipped (non-root)"
 fi
 
 # Delegate to the image's original entrypoint with the original CMD

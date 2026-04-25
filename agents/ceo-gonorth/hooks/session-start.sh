@@ -89,6 +89,38 @@ PERSONA_PREFIX="$(cc_identity_field "$IDENTITY_PATH" "signed_chrome_prefix")"
   echo "(team_memory not yet wired; M3 adds it)"
   echo
 
+  # M4 A4: cross-persona Stop sync — show recent team-wide activity.
+  echo "## Team recent activity (last 20 lines from /workspace/team-recent.md)"
+  if [ -f "/workspace/team-recent.md" ]; then
+    tail -n 20 "/workspace/team-recent.md"
+  else
+    echo "_(no team-recent.md yet — populated as personas hit Stop)_"
+  fi
+  echo
+
+  # M4 A1: UX→CEO design-thread inbox (CEO-only). Iris writes here when she
+  # posts to a #design-tagged thread; CEO sees on next SessionStart.
+  if [ "$PERSONA" = "ceo-gonorth" ] && [ -f "/workspace/agents/ceo-gonorth/memory/inbox-from-ux.md" ]; then
+    echo "## Inbox from UX (Iris) — design-thread proposals"
+    tail -n 20 "/workspace/agents/ceo-gonorth/memory/inbox-from-ux.md"
+    echo
+  fi
+
+  # M4 A6: /compact draft continuation — detect compact-recovery files and
+  # surface them so the agent can resume the in-flight draft.
+  if ls "${MEM_DIR}"/compact-recovery-*.md >/dev/null 2>&1 ; then
+    echo "## Draft recovery (from previous /compact)"
+    LATEST_RECOVERY="$(ls -t "${MEM_DIR}"/compact-recovery-*.md 2>/dev/null | head -1)"
+    if [ -n "$LATEST_RECOVERY" ]; then
+      echo "Found in-flight draft from previous compact at: $LATEST_RECOVERY"
+      echo "First 60 lines:"
+      head -n 60 "$LATEST_RECOVERY"
+      echo
+      echo "_(if you want to resume this draft, read the full file; otherwise delete to dismiss.)_"
+    fi
+    echo
+  fi
+
   echo "## MANDATES (from IDENTITY.md)"
   echo "- Re-read this context before answering the operator."
   echo "- Sign every outbound operator-facing message with the persona prefix."

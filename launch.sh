@@ -342,6 +342,12 @@ echo "[war-room] Creating tmux session '$SESSION'..."
 # Agents auto-restart on exit via start.sh wrapper.
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
 
+# --- M4: install A3 morning-digest cron (best-effort; needs root for /etc/cron.d) ---
+if [ -f /workspace/scripts/m4-cron/install-crons.sh ] ; then
+  bash /workspace/scripts/m4-cron/install-crons.sh 2>/dev/null || \
+    echo "[war-room] M4 cron install non-root or unavailable — operator can run manually with: docker exec -u root war-room bash /workspace/scripts/m4-cron/install-crons.sh"
+fi
+
 # Create first agent's tmux session
 IFS=':' read -r name token_var model <<< "${AGENTS[0]}"
 tmux new-session -d -s "$SESSION" -x 200 -y 50 \

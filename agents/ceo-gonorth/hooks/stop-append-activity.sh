@@ -51,4 +51,10 @@ LINE=$(printf '{"ts":"%s","persona":"%s","verb":"%s","object":"%s","issue-ref":%
 printf '%s\n' "$LINE" >>"$FEED_PATH"
 
 cc_log "$PERSONA" "Stop appended to $FEED_PATH"
+
+# M4 A1+A4: cross-persona Stop sync + UX→CEO design-thread sync.
+PERSONA="$PERSONA" VERB="$VERB" OBJECT="$OBJECT" CC_STDIN_PAYLOAD="$CC_STDIN_PAYLOAD" \
+  bash "$(cd "$(dirname "$0")/../../_common/hooks" && pwd)/m4-stop-tail.sh" \
+  >>"${CC_LOG_FILE:-/tmp/hooks-${PERSONA}.log}" 2>&1 || true
+
 cc_hook_exit

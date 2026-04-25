@@ -120,6 +120,9 @@ services:
       - project-repo:/workspace/project
       # Shared deploy scripts — Paperclip agents can run deploy-gonorth.sh
       - ./scripts:/workspace/scripts:ro
+      # M4: sidecar source (mcp-team-memory + m3-ui + m4-watchers).
+      # Entrypoint copies these into /paperclip/<name>/ on every boot.
+      - ./sidecars:/workspace/sidecars:ro
       # SSH key for deploying to Plesk (same key as war-room).
       # Host file MUST be `chown 1000:1000` (matches the `node` user inside
       # the paperclip image) and mode 0600 — otherwise the CEO agent hits
