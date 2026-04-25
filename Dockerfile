@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       rsync \
       openssh-client \
       jq \
+      cron \
+      postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # --- install ttyd from GitHub releases (detect arch) ---

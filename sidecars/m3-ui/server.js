@@ -368,6 +368,59 @@ function costPage() {
   );
 }
 
+// M5: JSON activity_feed reader for war-room digest. Two query modes:
+//   ?since_iso=<ts>            — return rows with ts > since_iso
+//   ?undigested=1              — return rows where digested_at IS NULL
+//   ?limit=N                   — cap (default 50, max 500)
+// Returns: {entries: [{ts, source, persona_slug, verb, object, issue_ref, meta}, ...], count}.
+async function activityFeedJson(q) {
+  const limit = Math.max(1, Math.min(parseInt(q.limit || "50", 10) || 50, 500));
+  const since = q.since_iso || "";
+  const undigested = q.undigested === "1";
+  try {
+    const c = await ensurePg();
+    let sql;
+    let args;
+    if (undigested) {
+      sql = `SELECT id, ts, source, persona_slug, verb, object, issue_ref, meta
+              FROM activity_feed WHERE digested_at IS NULL ORDER BY ts ASC LIMIT $1`;
+      args = [limit];
+    } else if (since) {
+      sql = `SELECT id, ts, source, persona_slug, verb, object, issue_ref, meta
+              FROM activity_feed WHERE ts > $1::timestamptz ORDER BY ts ASC LIMIT $2`;
+      args = [since, limit];
+    } else {
+      sql = `SELECT id, ts, source, persona_slug, verb, object, issue_ref, meta
+              FROM activity_feed ORDER BY ts DESC LIMIT $1`;
+      args = [limit];
+    }
+    const { rows } = await c.query(sql, args);
+    return JSON.stringify({ ok: true, count: rows.length, entries: rows });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: e.message, entries: [], count: 0 });
+  }
+}
+
+async function markActivityDigested(q) {
+  const ids = String(q.ids || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => parseInt(s, 10))
+    .filter((n) => Number.isFinite(n));
+  if (!ids.length) return JSON.stringify({ ok: true, updated: 0 });
+  try {
+    const c = await ensurePg();
+    const r = await c.query(
+      `UPDATE activity_feed SET digested_at = now() WHERE id = ANY($1::bigint[]) AND digested_at IS NULL`,
+      [ids],
+    );
+    return JSON.stringify({ ok: true, updated: r.rowCount || 0 });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: e.message, updated: 0 });
+  }
+}
+
 async function send(res, code, body, type = "text/html; charset=utf-8") {
   res.writeHead(code, {
     "content-type": type,
@@ -415,6 +468,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && u.pathname === "/ui/cost") {
       return send(res, 200, costPage());
+    }
+    // M5: JSON endpoint so war-room digest can read activity_feed via HTTP
+    // (no psql required in war-room, no shared bind-mount required).
+    if (req.method === "GET" && u.pathname === "/api/activity-feed") {
+      return send(res, 200, await activityFeedJson(u.query), "application/json");
+    }
+    if (req.method === "POST" && u.pathname === "/api/activity-feed/mark-digested") {
+      return send(res, 200, await markActivityDigested(u.query), "application/json");
     }
     return send(res, 404, layout("Not found", "<h1>404</h1>"));
   } catch (e) {

@@ -14,6 +14,17 @@
 
 set -e
 
+# M5: ensure cron + jq present (used by m4-cron jobs and digest fallback).
+if ! command -v crontab >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  echo "[paperclip-init] Installing cron + jq..."
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      cron \
+      jq \
+    >/tmp/apt-install-cron-jq.log 2>&1 \
+    || echo "[paperclip-init] cron/jq install FAILED — see /tmp/apt-install-cron-jq.log"
+fi
+
 # M4 Step 0: ensure psql client present for operator-side debugging of team_memory.
 # Embedded-postgres bundle ships only initdb/pg_ctl/postgres — no client.
 if ! command -v psql >/dev/null 2>&1; then
