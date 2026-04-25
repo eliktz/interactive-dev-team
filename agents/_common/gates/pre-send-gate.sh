@@ -77,7 +77,15 @@ _psg_emit_block() {
 
 _psg_append_gate_log() {
   # $1 = ndjson line (already encoded). Append-only.
-  local target="${GATE_LOG:-/tmp/pre-send-gate.ndjson}"
+  # M4: prefer /workspace/.hooks-logs/ when bind-mounted so the m3-ui
+  # /ui/gate-fires route can read it from the paperclip container.
+  local default_target="/tmp/pre-send-gate.ndjson"
+  if [ -d /workspace/.hooks-logs ] && [ -w /workspace/.hooks-logs ] ; then
+    default_target="/workspace/.hooks-logs/pre-send-gate.ndjson"
+  elif [ -d /workspace ] && [ -w /workspace ] ; then
+    mkdir -p /workspace/.hooks-logs 2>/dev/null && default_target="/workspace/.hooks-logs/pre-send-gate.ndjson"
+  fi
+  local target="${GATE_LOG:-$default_target}"
   printf '%s\n' "$1" >>"$target" 2>/dev/null || true
 }
 

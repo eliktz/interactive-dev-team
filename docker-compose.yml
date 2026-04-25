@@ -123,6 +123,14 @@ services:
       # M4: sidecar source (mcp-team-memory + m3-ui + m4-watchers).
       # Entrypoint copies these into /paperclip/<name>/ on every boot.
       - ./sidecars:/workspace/sidecars:ro
+      # M4 observability: hook log dir (RO) + cross-persona team-recent.md +
+      # activity-feed file spillover so /ui/hook-health, /ui/forgetting,
+      # /ui/cost can render without needing the full /workspace bind-mount.
+      - ./.hooks-logs:/workspace/.hooks-logs:rw
+      - ./.morning-digests:/workspace/.morning-digests:rw
+      - ./.forgetting:/workspace/.forgetting:rw
+      - ./.cost:/workspace/.cost:rw
+      - ./.canaries:/workspace/.canaries:rw
       # SSH key for deploying to Plesk (same key as war-room).
       # Host file MUST be `chown 1000:1000` (matches the `node` user inside
       # the paperclip image) and mode 0600 — otherwise the CEO agent hits
