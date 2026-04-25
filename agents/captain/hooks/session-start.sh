@@ -23,8 +23,33 @@ trap 'rm -f "$CTX_FILE"' EXIT
 
 MEM_DIR="${PERSONA_DIR}/memory"
 SPINE_PATH="${CC_PRODUCT_SPINE_PATH:-${PERSONA_DIR}/../../companies/go-north/PRODUCT-SPINE.md}"
+IDENTITY_PATH="${PERSONA_DIR}/IDENTITY.md"
+
+# Pull the "when_to_speak" rule from IDENTITY.md frontmatter so it sits at the
+# very top of context — attention concentrates at the head, and the rule must
+# be in scope BEFORE any incoming message is processed (Iris self-diagnosis,
+# m1-rules-pin).
+WHEN_TO_SPEAK="$(cc_identity_field "$IDENTITY_PATH" "when_to_speak")"
+PERSONA_PREFIX="$(cc_identity_field "$IDENTITY_PATH" "signed_chrome_prefix")"
 
 {
+  echo "## When to speak"
+  if [ -n "$WHEN_TO_SPEAK" ]; then
+    echo "$WHEN_TO_SPEAK"
+  else
+    echo "_(no when_to_speak rule defined in IDENTITY.md — falling back to AGENTS.md)_"
+  fi
+  echo
+
+  echo "## Persona"
+  if [ -n "$PERSONA_PREFIX" ]; then
+    echo "${PERSONA_PREFIX} (${PERSONA})"
+  else
+    echo "${PERSONA}"
+  fi
+  echo
+
+  echo "## Memory snapshot"
   echo "# SESSION-START CONTEXT — ${PERSONA}"
   echo "_(auto-injected by hook; do not ignore)_"
   echo
