@@ -62,6 +62,26 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 [ -n "$SPINE_PATH" ] || SPINE_PATH="$REPO_ROOT/companies/$COMPANY_SLUG/PRODUCT-SPINE.md"
 
+# --- resolve display_name (M5-revise) ---
+# Prefer companies/<slug>/company.yml `display_name:`; fallback to titlecased slug.
+COMPANY_YML="$REPO_ROOT/companies/$COMPANY_SLUG/company.yml"
+COMPANY_DISPLAY_NAME=""
+if [ -f "$COMPANY_YML" ]; then
+  if command -v yq >/dev/null 2>&1; then
+    COMPANY_DISPLAY_NAME="$(yq -r '.display_name // ""' "$COMPANY_YML" 2>/dev/null || true)"
+  fi
+  if [ -z "$COMPANY_DISPLAY_NAME" ]; then
+    # Lightweight YAML grep fallback (single-line `display_name: "..."` form).
+    COMPANY_DISPLAY_NAME="$(grep -E '^display_name:' "$COMPANY_YML" 2>/dev/null \
+                              | head -n1 \
+                              | sed -E 's/^display_name:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/')"
+  fi
+fi
+if [ -z "$COMPANY_DISPLAY_NAME" ]; then
+  # Final fallback: titlecase the slug (go-north → Go-North).
+  COMPANY_DISPLAY_NAME="$(printf '%s' "$COMPANY_SLUG" | awk -F- 'BEGIN{OFS="-"}{for(i=1;i<=NF;i++){$i=toupper(substr($i,1,1)) substr($i,2)}; print}')"
+fi
+
 # --- quiet-hours check (Asia/Jerusalem; 22:00-08:00) ---
 is_quiet_hours() {
   # Quiet if local-Jerusalem hour in [22, 23] OR in [0, 7].
@@ -166,7 +186,7 @@ fi
 # --- render per language ---
 render_he() {
   # Opener — bolded ONCE, via MarkdownV2 `*...*`.
-  local opener="*סיכום יומי ל־Go-North*"
+  local opener="*סיכום יומי ל־${COMPANY_DISPLAY_NAME}*"
   echo "$opener"
   echo
   echo "*Goal:* (מטרה) — לקדם זרימת הצטרפות יציבה למשפחות שעוברות צפונה."
@@ -198,7 +218,7 @@ render_he() {
 }
 
 render_en() {
-  local opener="*Daily update for Go-North*"
+  local opener="*Daily update for ${COMPANY_DISPLAY_NAME}*"
   echo "$opener"
   echo
   echo "*Goal:* keep the intake flow moving for families heading north."

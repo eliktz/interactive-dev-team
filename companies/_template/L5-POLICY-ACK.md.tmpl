@@ -1,0 +1,22 @@
+---
+company: "{{COMPANY_SLUG}}"
+acknowledged: false
+signature: ""
+signed_at: ""
+operator_email: ""
+---
+# L5 Host-Memory Mount Policy Acknowledgment — {{COMPANY_DISPLAY_NAME}}
+
+By signing below, I (the operator) acknowledge that:
+
+1. The L5 host-memory layer mounts files from my host machine into the war-room
+   container at `/home/claude/.claude/projects/...` for cross-session memory persistence.
+2. Mounted content is filtered through a redaction layer that strips known-sensitive
+   patterns (`ANTHROPIC_API_KEY=`, `BITBUCKET_TOKEN=`, etc.) before agents see it.
+3. I have reviewed `docs/l5-mount-policy.md` and accept the privacy implications.
+4. This acknowledgment can be revoked by setting `acknowledged: false` and re-running
+   the bootstrap.
+
+To sign: set `acknowledged: true`, fill `signature` (your name) + `signed_at` (ISO8601)
++ `operator_email`. Then re-run `bootstrap-company.sh {{COMPANY_SLUG}} --refresh-l5`
+or run `scripts/l5-mount-prep.sh {{COMPANY_SLUG}}` directly.

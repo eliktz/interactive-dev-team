@@ -30,6 +30,43 @@ const PG_URL =
 const ACTIVITY_NDJSON =
   process.env.M3_UI_ACTIVITY_NDJSON || "/workspace/dev-activity-feed.ndjson";
 
+// M5-revise: shared bearer token for write APIs (POST /api/companies). Reuses the
+// mcp-team-memory token (same paperclip volume) so operators don't manage two
+// secrets. Falls back to env var, then to disabled (writes return 503).
+const PAPERCLIP_API_TOKEN_PATH =
+  process.env.PAPERCLIP_API_TOKEN_PATH || "/paperclip/mcp-team-memory/token";
+function loadApiToken() {
+  if (process.env.PAPERCLIP_API_TOKEN) return process.env.PAPERCLIP_API_TOKEN.trim();
+  try { return fs.readFileSync(PAPERCLIP_API_TOKEN_PATH, "utf8").trim(); }
+  catch { return null; }
+}
+function checkBearer(req) {
+  const token = loadApiToken();
+  if (!token) return { ok: false, code: 503, reason: "no_token_configured" };
+  const hdr = req.headers["authorization"] || "";
+  const m = hdr.match(/^Bearer\s+(.+)$/i);
+  if (!m || m[1].trim() !== token) return { ok: false, code: 401, reason: "unauthorized" };
+  return { ok: true };
+}
+async function readJsonBody(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return null; }
+}
+function deriveIssuePrefix(slug) {
+  // Slug → 3-letter uppercase prefix (e.g. "go-north" → "GON", "acme" → "ACM",
+  // "qg6-smoke" → "QGS"). If collision, suffix random 1-char (handled by caller via retry).
+  const parts = String(slug || "").toUpperCase().replace(/[^A-Z0-9-]/g, "").split("-").filter(Boolean);
+  let p = "";
+  if (parts.length >= 3) p = parts.slice(0, 3).map(x => x[0]).join("");
+  else if (parts.length === 2) p = (parts[0][0] || "") + parts[1].slice(0, 2);
+  else p = (parts[0] || "PAP").slice(0, 3);
+  while (p.length < 3) p += "X";
+  return p.slice(0, 3);
+}
+
 let pg;
 async function ensurePg() {
   if (pg) return pg;
@@ -421,6 +458,60 @@ async function markActivityDigested(q) {
   }
 }
 
+// M5-revise: POST /api/companies — operator-side onboarding helper so
+// bootstrap-company.sh can insert via curl without psql on the host.
+// Schema: see paperclip companies table — id (uuid), name, description, status, issue_prefix.
+// Body: { slug, display_name, paperclip_company_id?, description?, issue_prefix? }
+async function createCompany(body) {
+  if (!body || typeof body !== "object")
+    return { code: 400, json: { ok: false, error: "body must be JSON object" } };
+  const slug = (body.slug || "").trim();
+  const displayName = (body.display_name || "").trim();
+  const desc = (body.description || `slug:${slug}`).trim();
+  const reqId = (body.paperclip_company_id || "").trim();
+  if (!slug || !displayName)
+    return { code: 400, json: { ok: false, error: "slug + display_name required" } };
+  // Resolve a unique issue_prefix.
+  const c = await ensurePg();
+  let prefix = (body.issue_prefix || deriveIssuePrefix(slug)).toUpperCase().slice(0, 6);
+  for (let i = 0; i < 10; i++) {
+    const r = await c.query(`SELECT 1 FROM companies WHERE issue_prefix = $1 LIMIT 1`, [prefix]);
+    if (!r.rows.length) break;
+    // Collision — append digit. (e.g. ACM → ACM2 → ACM3 …)
+    prefix = (deriveIssuePrefix(slug) + String(i + 2)).slice(0, 6);
+  }
+  try {
+    let row;
+    if (reqId) {
+      // Caller-supplied id: try INSERT, on id-conflict re-use existing.
+      const r = await c.query(
+        `INSERT INTO companies (id, name, description, status, issue_prefix)
+         VALUES ($1::uuid, $2, $3, 'active', $4)
+         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, updated_at = now()
+         RETURNING id, name, status, issue_prefix`,
+        [reqId, displayName, desc, prefix]
+      );
+      row = r.rows[0];
+    } else {
+      // Name-based upsert (no unique constraint on name, so SELECT-then-INSERT).
+      const sel = await c.query(`SELECT id, name, status, issue_prefix FROM companies WHERE name = $1 LIMIT 1`, [displayName]);
+      if (sel.rows[0]) {
+        await c.query(`UPDATE companies SET description = $2, updated_at = now() WHERE id = $1`, [sel.rows[0].id, desc]);
+        row = sel.rows[0];
+      } else {
+        const ins = await c.query(
+          `INSERT INTO companies (name, description, status, issue_prefix) VALUES ($1, $2, 'active', $3) RETURNING id, name, status, issue_prefix`,
+          [displayName, desc, prefix]
+        );
+        row = ins.rows[0];
+      }
+    }
+    return { code: 200, json: { ok: true, id: row.id, name: row.name, status: row.status, issue_prefix: row.issue_prefix, slug } };
+  } catch (e) {
+    return { code: 500, json: { ok: false, error: e.message } };
+  }
+}
+
 async function send(res, code, body, type = "text/html; charset=utf-8") {
   res.writeHead(code, {
     "content-type": type,
@@ -476,6 +567,19 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && u.pathname === "/api/activity-feed/mark-digested") {
       return send(res, 200, await markActivityDigested(u.query), "application/json");
+    }
+        // M5-revise: POST /api/companies (bearer-auth)
+    if (req.method === "POST" && u.pathname === "/api/companies") {
+      const auth = checkBearer(req);
+      if (!auth.ok) {
+        return send(res, auth.code, JSON.stringify({ ok: false, error: auth.reason }), "application/json");
+      }
+      const body = await readJsonBody(req);
+      if (body === null) {
+        return send(res, 400, JSON.stringify({ ok: false, error: "invalid JSON body" }), "application/json");
+      }
+      const r = await createCompany(body);
+      return send(res, r.code, JSON.stringify(r.json), "application/json");
     }
     return send(res, 404, layout("Not found", "<h1>404</h1>"));
   } catch (e) {

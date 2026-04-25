@@ -133,6 +133,7 @@ render() {
 render "${TPL_COMPANY}/COMPANY.md.tmpl"        "${COMPANY_DIR}/COMPANY.md"
 render "${TPL_COMPANY}/PRODUCT-SPINE.md.tmpl"  "${COMPANY_DIR}/PRODUCT-SPINE.md"
 render "${TPL_COMPANY}/company.yml.tmpl"       "${COMPANY_DIR}/company.yml"
+render "${TPL_COMPANY}/L5-POLICY-ACK.md.tmpl" "${COMPANY_DIR}/L5-POLICY-ACK.md"
 
 # Render per-persona dirs. Persona attrs are read from company.yml; for the
 # default 3 personas we use baked defaults to avoid a YAML parser dep.
@@ -171,17 +172,74 @@ for persona in $PERSONAS_DEFAULT; do
 done
 
 # Optional: insert paperclip company row (best-effort, non-fatal).
+# Two paths in priority order:
+#   1) Sidecar HTTP API (POST /api/companies on m3-ui sidecar) — preferred
+#      because host doesn't need psql. Token from /paperclip/mcp-team-memory/token
+#      mounted via paperclip volume; fallback to PAPERCLIP_API_TOKEN env var.
+#   2) Direct psql (legacy path) — only if curl/sidecar unreachable AND host
+#      has psql.
 PAPERCLIP_RESULT="skipped"
-if [ "$NO_PAPERCLIP" != "1" ] && command -v psql >/dev/null 2>&1; then
-  PAPERCLIP_PG_URL="${PAPERCLIP_PG_URL:-postgresql://paperclip:paperclip@127.0.0.1:54329/paperclip}"
-  if psql "$PAPERCLIP_PG_URL" -c "SELECT 1 FROM information_schema.tables WHERE table_name='companies'" -tA 2>/dev/null | grep -q 1 ; then
-    if psql "$PAPERCLIP_PG_URL" -c "INSERT INTO companies (id, name, description, status) VALUES ('${PAPERCLIP_COMPANY_ID}', '${DISPLAY_NAME}', 'slug:${SLUG} — ${NORTH_STAR}', 'active') ON CONFLICT (id) DO NOTHING" 2>>"$LOG" ; then
-      PAPERCLIP_RESULT="inserted ${PAPERCLIP_COMPANY_ID}"
-    else
-      PAPERCLIP_RESULT="psql insert failed (see log)"
+PAPERCLIP_API_URL="${PAPERCLIP_API_URL:-http://127.0.0.1:3101/api/companies}"
+if [ "$NO_PAPERCLIP" != "1" ] ; then
+  # Resolve token: env var first, else read from paperclip container.
+  PAPERCLIP_TOKEN="${PAPERCLIP_API_TOKEN:-}"
+  if [ -z "$PAPERCLIP_TOKEN" ] && command -v docker >/dev/null 2>&1 ; then
+    PAPERCLIP_TOKEN="$(docker exec interactive-dev-team-paperclip-1 cat /paperclip/mcp-team-memory/token 2>/dev/null || true)"
+  fi
+  # Sidecar listens on :3101 inside the paperclip container; not published to
+  # host. Two paths: PAPERCLIP_API_URL env var (host-published or remote) OR
+  # docker exec inside the paperclip container (default).
+  if [ -n "$PAPERCLIP_TOKEN" ]; then
+    BODY=$(printf '{"slug":"%s","display_name":"%s","paperclip_company_id":"%s","description":"slug:%s — %s"}' \
+            "${SLUG}" "${DISPLAY_NAME}" "${PAPERCLIP_COMPANY_ID}" "${SLUG}" "${NORTH_STAR}")
+    PAPERCLIP_CONTAINER="${PAPERCLIP_CONTAINER:-interactive-dev-team-paperclip-1}"
+    PAPERCLIP_INTERNAL_URL="${PAPERCLIP_INTERNAL_URL:-http://127.0.0.1:3101/api/companies}"
+    USE_DOCKER_EXEC=0
+    if [ "${PAPERCLIP_API_URL}" = "http://127.0.0.1:3101/api/companies" ] && command -v docker >/dev/null 2>&1 ; then
+      # Default URL + docker present → use docker exec curl (port not published).
+      USE_DOCKER_EXEC=1
     fi
-  else
-    PAPERCLIP_RESULT="paperclip 'companies' table not found (skipped)"
+    if [ "$USE_DOCKER_EXEC" = "1" ]; then
+      HTTP_CODE=$(docker exec "$PAPERCLIP_CONTAINER" curl -sS -o /tmp/bootstrap-paperclip-resp.json -w '%{http_code}' \
+                    -X POST "$PAPERCLIP_INTERNAL_URL" \
+                    -H "Authorization: Bearer ${PAPERCLIP_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    -d "$BODY" 2>>"$LOG" || echo 000)
+      if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+        PAPERCLIP_RESULT="inserted via API (${HTTP_CODE})"
+        docker exec "$PAPERCLIP_CONTAINER" cat /tmp/bootstrap-paperclip-resp.json >>"$LOG" 2>/dev/null || true
+      else
+        PAPERCLIP_RESULT="API call failed (HTTP ${HTTP_CODE}) — see log"
+        docker exec "$PAPERCLIP_CONTAINER" cat /tmp/bootstrap-paperclip-resp.json >>"$LOG" 2>/dev/null || true
+      fi
+    elif command -v curl >/dev/null 2>&1 ; then
+      HTTP_CODE=$(curl -sS -o /tmp/bootstrap-paperclip-resp.$$.json -w '%{http_code}' \
+                    -X POST "$PAPERCLIP_API_URL" \
+                    -H "Authorization: Bearer ${PAPERCLIP_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    -d "$BODY" 2>>"$LOG" || echo 000)
+      if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+        PAPERCLIP_RESULT="inserted via API (${HTTP_CODE})"
+        cat /tmp/bootstrap-paperclip-resp.$$.json >>"$LOG" 2>/dev/null || true
+      else
+        PAPERCLIP_RESULT="API call failed (HTTP ${HTTP_CODE}) — see log"
+        cat /tmp/bootstrap-paperclip-resp.$$.json >>"$LOG" 2>/dev/null || true
+      fi
+      rm -f /tmp/bootstrap-paperclip-resp.$$.json 2>/dev/null || true
+    fi
+  fi
+  # Fallback: legacy psql path if API didn't succeed and psql is available.
+  if [[ "$PAPERCLIP_RESULT" != inserted* ]] && command -v psql >/dev/null 2>&1; then
+    PAPERCLIP_PG_URL="${PAPERCLIP_PG_URL:-postgresql://paperclip:paperclip@127.0.0.1:54329/paperclip}"
+    if psql "$PAPERCLIP_PG_URL" -c "SELECT 1 FROM information_schema.tables WHERE table_name='companies'" -tA 2>/dev/null | grep -q 1 ; then
+      if psql "$PAPERCLIP_PG_URL" -c "INSERT INTO companies (id, name, description, status) VALUES ('${PAPERCLIP_COMPANY_ID}', '${DISPLAY_NAME}', 'slug:${SLUG} — ${NORTH_STAR}', 'active') ON CONFLICT (id) DO NOTHING" 2>>"$LOG" ; then
+        PAPERCLIP_RESULT="inserted via psql ${PAPERCLIP_COMPANY_ID}"
+      else
+        PAPERCLIP_RESULT="psql insert failed (see log)"
+      fi
+    else
+      PAPERCLIP_RESULT="paperclip 'companies' table not found (skipped)"
+    fi
   fi
 fi
 
@@ -206,7 +264,7 @@ Paperclip row: ${PAPERCLIP_RESULT}
 Next steps (operator):
   1. Create Telegram bots (one per persona) via @BotFather, set tokens
      in env vars, attach to group ${TELEGRAM_GROUP_ID:-<TBD>}.
-  2. Sign L5-POLICY-ACK.md.tmpl for the operator.
+  2. Review and sign companies/${SLUG}/L5-POLICY-ACK.md (set acknowledged: true + signature).
   3. Edit companies/${SLUG}/PRODUCT-SPINE.md to fill in Mission, Themes,
      Milestones, Current State.
   4. (Optional) Bind-mount agents/${SLUG}-* into running war-room container,
