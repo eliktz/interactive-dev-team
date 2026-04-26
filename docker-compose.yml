@@ -57,6 +57,8 @@ services:
       # Trello
       TRELLO_API_KEY: ${TRELLO_API_KEY:-}
       TRELLO_API_TOKEN: ${TRELLO_API_TOKEN:-}
+      TRELLO_BOARD_URL: ${TRELLO_BOARD_URL:-}
+      TRELLO_BOARD_ID: ${TRELLO_BOARD_ID:-}
       # Paperclip connection (Docker network)
       PAPERCLIP_URL: http://paperclip:3100
       PAPERCLIP_COMPANY_ID: ${PAPERCLIP_COMPANY_ID:-}
@@ -110,6 +112,9 @@ services:
       # Production site URL — Paperclip sub-agents (backend-dev/frontend-dev/qa-lead)
       # read this for QA repro URLs and post-deploy validation
       GONORTH_PROD_URL: ${GONORTH_PROD_URL:-https://gonorth.tlk.solutions}
+      # Trello board URL — sub-agents reference this in operator-facing messages
+      # ("see Trello card X"). Auth keys stay CC-side; only the URL is shared.
+      TRELLO_BOARD_URL: ${TRELLO_BOARD_URL:-}
       # Git identity for agent commits
       GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Paperclip Agent}
       GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@gonorth.ai}

@@ -17,6 +17,8 @@ You have access to these MCP tools — use them proactively:
 
 ### Trello (Task Management)
 - **MCP server:** `trello` — board and card management
+- **Board URL:** read from env var `$TRELLO_BOARD_URL` (currently `https://trello.com/b/YJFD3J21/go-north-website`). Always reference the env var when including a Trello link in operator-facing messages — the literal URL changes per company. Bash: `echo "$TRELLO_BOARD_URL"`.
+- **Board ID (for API calls):** `$TRELLO_BOARD_ID` (24-char hex, used by `scripts/trello-rewrite.sh` + `ceo-trello-sync.sh`).
 - **Use for:** Creating/updating cards, tracking sprint progress, reflecting project status
 
 ### Paperclip (Agent Management)

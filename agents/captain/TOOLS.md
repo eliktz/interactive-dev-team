@@ -17,6 +17,8 @@ You have access to these MCP tools — use them proactively:
 
 ### Trello (Task Management)
 - **MCP server:** `trello` — board and card management
+- **Board URL:** `$TRELLO_BOARD_URL` (currently `https://trello.com/b/YJFD3J21/go-north-website`) — env var, not hardcoded.
+- **Board ID for API:** `$TRELLO_BOARD_ID`.
 - **Use for:** Creating/updating cards, tracking sprint progress
 
 ### Deploy to Production
