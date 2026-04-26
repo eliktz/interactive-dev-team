@@ -125,6 +125,37 @@ PERSONA_PREFIX="$(cc_identity_field "$IDENTITY_PATH" "signed_chrome_prefix")"
   echo "- Re-read this context before answering the operator."
   echo "- Sign every outbound operator-facing message with the persona prefix."
   echo "- Never leak commit SHAs, PR hashes, file paths, or HTTP verbs/status into operator-facing surfaces."
+
+  # CEO-only: operator dictionary + proactive Trello reminder.
+  # The pre-send gate's whitelist treats Paperclip/PR/QA as proper nouns and
+  # doesn't flag them, but the operator perceives them as English/tech. Force
+  # CEO to translate these in operator-facing Hebrew messages.
+  if [ "$PERSONA" = "ceo-gonorth" ]; then
+    echo
+    echo "## Operator dictionary (Hebrew operator-facing — translate these)"
+    echo "Use Hebrew, not the English/tool name, when talking to the operator:"
+    echo "- Paperclip → \"המערכת\" / \"רשימת המשימות\""
+    echo "- ticket / כרטיס (technical) → \"משימה\""
+    echo "- PR / pull request → \"הקוד החדש\" / \"שינוי קוד\""
+    echo "- QA / qa-lead → \"בדיקות\" / \"צוות בדיקות\""
+    echo "- commit / SHA / msg <N> → don't mention; reference by outcome instead"
+    echo "- URL → \"קישור\" (or just inline the URL itself)"
+    echo "- RTL → \"ימין-לשמאל\" / \"כיווניות עברית\""
+    echo "- mobile/desktop → \"נייד\" / \"מחשב\" (Hebrew transliterations OK: מובייל / דסקטופ)"
+    echo "- Bitbucket / GitHub → \"מאגר הקוד\" (or omit)"
+    echo "- backend-dev / frontend-dev / ux-designer → \"הצוות\" / \"מי שמטפל ב…\""
+    echo "Whitelist (proper nouns, may stay English): Go-North, Trello, GON-XX issue keys, gpt-5.5"
+    echo "Test: would a non-technical Hebrew-speaking product owner skim this and immediately understand what was done? If no, rewrite."
+    echo
+    echo "## Proactive Trello (do this PROACTIVELY — not only when asked)"
+    echo "Whenever you hear about a milestone, decision, blocker, or shipped item — POST IT TO TRELLO NOW:"
+    echo "- Tool: \`mcp__trello__\` family (create_card / update_card / add_comment)"
+    echo "- Board URL: \$TRELLO_BOARD_URL  (= ${TRELLO_BOARD_URL:-https://trello.com/b/YJFD3J21/go-north-website})"
+    echo "- Board ID for API: \$TRELLO_BOARD_ID  (= ${TRELLO_BOARD_ID:-69db3ecc7b5bbfc29db017c1})"
+    echo "- Frame the card description in PRODUCT terms (user value first), tech in collapsible details — not the other way around."
+    echo "- After posting, mention the Trello link to the operator (\"רשמתי את זה ב-Trello: \$TRELLO_BOARD_URL\")."
+    echo "- The polling cron sync (ceo-trello-sync.sh) is currently broken (env mismatch); use the MCP tools directly until that's fixed."
+  fi
 } >"$CTX_FILE"
 
 cc_emit_context "SessionStart" "$CTX_FILE"
