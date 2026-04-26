@@ -2,11 +2,24 @@
 # Bind-mounted into the paperclip service at /paperclip/.codex/config.toml
 # Azure OpenAI routing — re-verified against tlk-ai-agents with gpt-5.5 on 2026-04-25.
 #
-# Endpoint shape per operator-supplied config:
-#   https://tlk-ai-agents.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview
-# The /openai/responses path takes the dated api-version "2025-04-01-preview".
-# (The legacy /openai/v1 unified path required api-version="preview" — both
-# work; we use the explicit dated form here to match the operator's pinned spec.)
+# IMPORTANT — Codex Azure adapter quirk:
+# - Codex expects base_url to be the unified `/openai/v1` form, NOT the raw
+#   `/openai/responses` form. With `/openai/responses`, Codex sees the literal
+#   "responses" and tries to parse it as a response_id, getting HTTP 400
+#   "Invalid 'response_id': 'responses'".
+# - The unified v1 endpoint requires api-version="preview" (the literal string,
+#   not a dated version like "2025-04-01-preview").
+# - Operator-supplied raw URL was
+#     https://tlk-ai-agents.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview
+#   That URL works for direct curl but NOT for Codex — it's the same Azure
+#   resource + same key, just a different routing convention.
+#
+# IMPORTANT — bind-mount quirk:
+# - This is a single-file bind-mount in docker-compose.yml. Git's atomic-rename
+#   on `git pull` breaks the inode binding; the container keeps seeing the OLD
+#   content. After editing this file, restart paperclip (`docker restart
+#   interactive-dev-team-paperclip-1`) to refresh the bind. UI/MCP/watcher all
+#   auto-respawn via paperclip-entrypoint.sh.
 #
 # AZURE_OPENAI_API_KEY is NOT in this file. It comes from the paperclip service env
 # in docker-compose.yml (or per-agent adapter_config.env for overrides).
@@ -16,7 +29,7 @@ model = "gpt-5.5"
 
 [model_providers.azure]
 name = "Azure OpenAI"
-base_url = "https://tlk-ai-agents.cognitiveservices.azure.com/openai/responses"
+base_url = "https://tlk-ai-agents.cognitiveservices.azure.com/openai/v1"
 env_key = "AZURE_OPENAI_API_KEY"
 wire_api = "responses"
-query_params = { api-version = "2025-04-01-preview" }
+query_params = { api-version = "preview" }
