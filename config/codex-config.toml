@@ -1,20 +1,22 @@
 # Codex CLI configuration for the Paperclip container.
 # Bind-mounted into the paperclip service at /paperclip/.codex/config.toml
-# Azure OpenAI routing — verified working against tlk-ai-agents on 2026-04-18.
+# Azure OpenAI routing — re-verified against tlk-ai-agents with gpt-5.5 on 2026-04-25.
 #
-# IMPORTANT:
-# - api-version is the literal string "preview" (the unified /openai/v1 endpoint
-#   does not accept dated versions like "2025-04-01-preview"; that returns HTTP 400).
-# - The actual AZURE_OPENAI_API_KEY is NOT in this file. It is passed through the
-#   process environment via each agent's adapter_config.env block (or via the
-#   paperclip service env in docker-compose.yml for a container-wide default).
+# Endpoint shape per operator-supplied config:
+#   https://tlk-ai-agents.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview
+# The /openai/responses path takes the dated api-version "2025-04-01-preview".
+# (The legacy /openai/v1 unified path required api-version="preview" — both
+# work; we use the explicit dated form here to match the operator's pinned spec.)
+#
+# AZURE_OPENAI_API_KEY is NOT in this file. It comes from the paperclip service env
+# in docker-compose.yml (or per-agent adapter_config.env for overrides).
 
 model_provider = "azure"
-model = "gpt-5.3-codex"
+model = "gpt-5.5"
 
 [model_providers.azure]
 name = "Azure OpenAI"
-base_url = "https://tlk-ai-agents.cognitiveservices.azure.com/openai/v1"
+base_url = "https://tlk-ai-agents.cognitiveservices.azure.com/openai/responses"
 env_key = "AZURE_OPENAI_API_KEY"
 wire_api = "responses"
-query_params = { api-version = "preview" }
+query_params = { api-version = "2025-04-01-preview" }

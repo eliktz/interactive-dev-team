@@ -4,7 +4,7 @@ adapter_defaults:
   adapter_type: codex_local
   adapter_config:
     dangerouslyBypassApprovalsAndSandbox: true
-    model: gpt-5.3-codex
+    model: gpt-5.5
     workingDirectory: /workspace/project
     extraArgs: ["--skip-git-repo-check"]
 
@@ -13,41 +13,41 @@ agents:
     reportsTo: null
     adapter_type: codex_local
     adapter_config:
-      model: gpt-5.3-codex
+      model: gpt-5.5
       instructionsFilePath: /paperclip/companies/go-north/agents/product-manager/AGENTS.md
       extraArgs: ["--skip-git-repo-check"]
   finance-officer:
     reportsTo: product-manager
     adapter_type: codex_local
     adapter_config:
-      model: gpt-5.3-codex
+      model: gpt-5.5
       instructionsFilePath: /paperclip/companies/go-north/agents/finance-officer/AGENTS.md
       extraArgs: ["--skip-git-repo-check"]
   frontend-dev:
     reportsTo: product-manager
     adapter_type: codex_local
     adapter_config:
-      model: gpt-5.3-codex
+      model: gpt-5.5
       instructionsFilePath: /paperclip/companies/go-north/agents/frontend-dev/AGENTS.md
       extraArgs: ["--skip-git-repo-check"]
   backend-dev:
     reportsTo: product-manager
     adapter_type: codex_local
     adapter_config:
-      model: gpt-5.3-codex
+      model: gpt-5.5
       instructionsFilePath: /paperclip/companies/go-north/agents/backend-dev/AGENTS.md
       extraArgs: ["--skip-git-repo-check"]
   qa-lead:
     reportsTo: product-manager
     adapter_type: codex_local
     adapter_config:
-      model: gpt-5.3-codex
+      model: gpt-5.5
       instructionsFilePath: /paperclip/companies/go-north/agents/qa-lead/AGENTS.md
       extraArgs: ["--skip-git-repo-check"]
   ux-designer:
     reportsTo: product-manager
     adapter_type: codex_local
     adapter_config:
-      model: gpt-5.3-codex
+      model: gpt-5.5
       instructionsFilePath: /paperclip/companies/go-north/agents/ux-designer/AGENTS.md
       extraArgs: ["--skip-git-repo-check"]
