@@ -4,7 +4,7 @@
 
 ### Playwright (Browser Automation)
 - **MCP server:** `playwright` — browser automation for testing and visual review
-- **Go-North URL:** `https://gonorth.tlk.solutions`
+- **Go-North URL:** read from env var `$GONORTH_PROD_URL` (currently `https://gonorth.tlk.solutions`). Always reference the env var, never hardcode. Bash: `echo "$GONORTH_PROD_URL"`.
 - **Use for:** Screenshotting the live app, auditing UI flows, checking RTL/mobile
 
 ### Bitbucket (Code Management)

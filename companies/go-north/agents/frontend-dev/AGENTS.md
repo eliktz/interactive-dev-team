@@ -84,9 +84,9 @@ If an issue you previously closed is reopened (status returned to `todo` / `in_p
 Before writing any comment that contains phrases like "already resolved", "already fixed", "already merged", "stale reopen", or "not a new regression", you MUST first:
 
 1. **Read the reopen comment in full**, including any `⚠️` / `DO NOT CLOSE` banner at the top of the issue description. The reporter usually cites the exact failing curl or stack; start there.
-2. **Run the reproduction against production** (or the staging URL the reporter used). For an HTTP bug that means literally invoking curl. Cite the exact command and the response status + first 300 bytes of body in your comment. Example:
+2. **Run the reproduction against production** (or the staging URL the reporter used). For an HTTP bug that means literally invoking curl. Read the prod URL from the env var `$GONORTH_PROD_URL` (always — do not hardcode). Cite the exact command and the response status + first 300 bytes of body in your comment. Example:
    ```
-   Repro: POST https://gonorth.tlk.solutions/api/profile
+   Repro: POST $GONORTH_PROD_URL/api/profile     # resolves to https://gonorth.tlk.solutions/api/profile
           body: {"sessionId":"<fresh-uuid>","answers":{}}
    Response: HTTP 500 — {"error":"Internal Server Error"}
    ```

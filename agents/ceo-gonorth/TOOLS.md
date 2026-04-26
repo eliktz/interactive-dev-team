@@ -12,7 +12,7 @@ You have access to these MCP tools — use them proactively:
 
 ### Playwright (Browser Automation)
 - **MCP server:** `playwright` — browser automation for testing and visual review
-- **Go-North URL:** `https://gonorth.tlk.solutions`
+- **Go-North URL:** read from env var `$GONORTH_PROD_URL` (currently `https://gonorth.tlk.solutions`). Always reference the env var; the literal value can change per company. Bash: `echo "$GONORTH_PROD_URL"`.
 - **Use for:** Navigating the Go-North app, taking screenshots, checking UI after changes
 
 ### Trello (Task Management)
