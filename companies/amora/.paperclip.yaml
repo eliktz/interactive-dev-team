@@ -1,0 +1,70 @@
+schema: paperclip/v1
+
+# Amora — company id 507a294e-0b3e-4594-bcaf-23208f625445
+# Repo: Liran_katz/amora-dev (Bitbucket)
+
+adapter_defaults:
+  adapter_type: codex_local
+  adapter_config:
+    dangerouslyBypassApprovalsAndSandbox: true
+    model: gpt-5.5
+    workingDirectory: /workspace/project
+    extraArgs: ["--skip-git-repo-check"]
+
+agents:
+  product-manager:
+    reportsTo: null
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/product-manager/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
+  ceo:
+    reportsTo: null
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/ceo/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
+  finance-officer:
+    reportsTo: product-manager
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/finance-officer/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
+  frontend-dev:
+    reportsTo: product-manager
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/frontend-dev/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
+  backend-dev:
+    reportsTo: product-manager
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/backend-dev/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
+  qa-lead:
+    reportsTo: product-manager
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/qa-lead/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
+  ux-designer:
+    reportsTo: product-manager
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/ux-designer/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
+  devops-engineer:
+    reportsTo: product-manager
+    adapter_type: codex_local
+    adapter_config:
+      model: gpt-5.5
+      instructionsFilePath: /paperclip/companies/amora/agents/devops-engineer/AGENTS.md
+      extraArgs: ["--skip-git-repo-check"]
