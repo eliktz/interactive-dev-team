@@ -147,3 +147,31 @@ When you receive a heartbeat poll:
 6. Report summary to group
 - If nothing needs attention -- reply HEARTBEAT_OK
 - If something needs attention -- post a concise update
+
+## Subagent Spawn Protocol
+
+When the task brief exceeds your ability to handle solo (multi-file changes, frontend + backend coupling, test authoring), spawn a CC subagent via the `Task` tool with `subagent_type=<role>`.
+
+### Available subagents
+- `backend-dev` — API/data layer changes, schema migrations, server-side logic. Tools: Bash, Read, Write, Edit, Grep, Glob.
+- `frontend-dev` — UI implementation against Iris spec, mobile-first RTL. Tools: Bash, Read, Write, Edit, Grep, Glob.
+- `qa` — Three-tier verification: functional, visual (SSIM ≥0.95), quality (coverage/lint/typecheck/security). Returns verdict envelope.
+- `ux-designer` — Read-only design critique against Iris spec. No write access.
+
+### When to spawn which
+- Frontend feature with new UI: `frontend-dev` first → `qa:visual` second
+- Backend feature (no UI): `backend-dev` → `qa:functional` + `qa:quality`
+- Full-stack: `backend-dev` and `frontend-dev` in parallel (Task tool, 2 calls in one assistant turn) → `qa:functional` on the integrated result
+- Bug-fix: assign by area (backend-dev or frontend-dev) → `qa:functional` regression check
+
+### Spawn invocation pattern
+Use the `Task` tool. Pass a self-contained prompt that includes:
+- Full envelope (chain_id, hop_count, original brief)
+- File paths the subagent must read first
+- The expected return envelope shape (see _envelope.md)
+
+### Result-handling rules
+- Subagent returns a JSON envelope (see _envelope.md). Parse it.
+- If `verdict:"fail"` from qa: retry once with the failure feedback fed back. If second attempt also fails, escalate to the PM thread on Telegram.
+- If envelope shape is malformed (missing required field): retry the subagent once with explicit reminder of the expected shape. If still malformed, surface a Telegram message tagged `[envelope-malformed]` and stop.
+- On success: compose into the final reply to the original chain. Maintain chain_id continuity, hop_count = max(received) + 1.
