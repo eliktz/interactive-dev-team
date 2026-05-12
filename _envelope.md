@@ -1,6 +1,6 @@
 # `_envelope.md` — Canonical JSON Envelope Spec (Plan-B Phase 1, Deliverable 8)
 
-The single source of truth for the structured JSON envelope all squad agents — galileo, captain, backend-dev, frontend-dev, qa, iris, hedva, ux — exchange over the agent-bus.
+The single source of truth for the structured JSON envelope all squad agents — yefet, captain, backend-dev, frontend-dev, qa, iris, hedva, ux — exchange over the agent-bus.
 
 ---
 
@@ -40,7 +40,7 @@ This is exactly the `interface BusMessage` declared at `plugins/agent-bus-market
 ### 2.1 Live example (from `/var/lib/warroom-bus/messages.ndjson`)
 
 ```json
-{"id":"01KQSW60811YYPF5H8GJ9EJD1T","ts":"2026-05-04T16:12:16.513Z","from":"iris","to":"galileo","reply_to":null,"subject":"v0.2 deploy link","body":"...","hop_count":0,"chain_id":"01KQSW607Y1MVX0E6HF4DBJTAE"}
+{"id":"01KQSW60811YYPF5H8GJ9EJD1T","ts":"2026-05-04T16:12:16.513Z","from":"iris","to":"yefet","reply_to":null,"subject":"v0.2 deploy link","body":"...","hop_count":0,"chain_id":"01KQSW607Y1MVX0E6HF4DBJTAE"}
 ```
 
 ---
@@ -89,7 +89,7 @@ type SquadEnvelopeType =
   | "task_brief_cancel_ack"
   | "qa_verdict"
   | "babysitter.gate"
-  | "galileo.fallback"
+  | "yefet.fallback"
   | "informational";
 ```
 
@@ -100,12 +100,12 @@ type SquadEnvelopeType =
 | `type` | Required fields (in addition to id, ts, from, to, chain_id, type) | Notes |
 |---|---|---|
 | `task_brief` | `hop_count`, `subject`, `body` | Originating envelope. `reply_to` MUST be null. Captain ingests and dispatches. |
-| `task_brief_ack` | `hop_count`, `reply_to` | Captain → galileo, confirms receipt within `GALILEO_FALLBACK_SLA_MIN`. |
-| `task_brief_cancel` | `reason` ∈ {`"sla_fallback"`, `"circuit_breaker"`, `"operator_override"`} | Galileo → captain on fallback fire; captain MUST abort matching in-flight spawn. `reply_to` MAY point at the cancelled task_brief but is not required. |
-| `task_brief_cancel_ack` | `reply_to` (= cancel's `id`) | Captain → galileo, confirms abort, within 60s. |
+| `task_brief_ack` | `hop_count`, `reply_to` | Captain → yefet, confirms receipt within `YEFET_FALLBACK_SLA_MIN`. |
+| `task_brief_cancel` | `reason` ∈ {`"sla_fallback"`, `"circuit_breaker"`, `"operator_override"`} | Yefet → captain on fallback fire; captain MUST abort matching in-flight spawn. `reply_to` MAY point at the cancelled task_brief but is not required. |
+| `task_brief_cancel_ack` | `reply_to` (= cancel's `id`) | Captain → yefet, confirms abort, within 60s. |
 | `qa_verdict` | `hop_count`, `reply_to`, `verdict`, `evidence` | `ssim` REQUIRED when verdict was produced by the `qa:visual` tier; `screenshot_diff` OPTIONAL but expected on `verdict="fail"` from qa:visual. |
 | `babysitter.gate` | `verdict`, `evidence` | Emitted by Phase 2 bus-event emitter on every gate decision. `evidence` SHOULD include `commit_sha` + the originating babysitter process name in `logs[0]`. `reply_to` OPTIONAL; when present points at the originating `task_brief`. |
-| `galileo.fallback` | `reason` ∈ {`"override"`, `"sla"`, `"circuit"`} | Galileo broadcasts on every fallback fire. Phase 4 aggregator counts these rows in `messages.ndjson`. |
+| `yefet.fallback` | `reason` ∈ {`"override"`, `"sla"`, `"circuit"`} | Yefet broadcasts on every fallback fire. Phase 4 aggregator counts these rows in `messages.ndjson`. |
 | `informational` | (none beyond base) | Catch-all for human-readable status — Iris design ping, operator note, etc. |
 
 ---
@@ -120,7 +120,7 @@ type SquadEnvelopeType =
 
 4. **`hop_count`** — Computed by the SENDER's bus when replying: `parent.hop_count + 1`. On a fresh chain (no `reply_to`), hop_count starts at 0. Receiver does NOT increment.
 
-5. **Hop cap** — `server.ts` line 208 rejects when `next >= maxHops` (so with `MAX_HOPS=4`, accepted hops are 0,1,2,3; the would-be hop=4 is rejected). Galileo overrides to `MAX_HOPS=3` (accepted hops 0,1,2).
+5. **Hop cap** — `server.ts` line 208 rejects when `next >= maxHops` (so with `MAX_HOPS=4`, accepted hops are 0,1,2,3; the would-be hop=4 is rejected). Yefet overrides to `MAX_HOPS=3` (accepted hops 0,1,2).
 
 6. **`chain_id`** — Minted as a fresh ULID by the ORIGINATING sender (no parent). Propagated UNCHANGED through every reply in the chain. `server.ts` line 214 + 429.
 
@@ -137,33 +137,33 @@ type SquadEnvelopeType =
 The sender's `bus-send.mjs` (and the in-process `doSend` in `server.ts`) writes a trip row to `${AGENT_BUS_DIR}/trips.ndjson` whenever a send is rejected:
 
 ```json
-{"ts":"2026-05-11T22:47:00.176Z","reason":"hop_limit","from":"leo","to":"galileo","chain_id":"01KRCKHGXFRAKBN6K8WD4SZMG3","detail":"agent-bus: hop limit reached (would be 3/3) for chain 01KRCKHGXFRAKBN6K8WD4SZMG3; message dropped."}
+{"ts":"2026-05-11T22:47:00.176Z","reason":"hop_limit","from":"leo","to":"yefet","chain_id":"01KRCKHGXFRAKBN6K8WD4SZMG3","detail":"agent-bus: hop limit reached (would be 3/3) for chain 01KRCKHGXFRAKBN6K8WD4SZMG3; message dropped."}
 ```
 
 Trip rules:
 
 - **`hop_limit`** — `next >= MAX_HOPS`. NO row written to `messages.ndjson`. Trip row written. Telegram BLOCKED notice posted (line 356-358).
-- **`cooldown`** — per-`(from,to)` interval `< AGENT_BUS_COOLDOWN_SEC` (default 5s; Galileo 30s). NO row in `messages.ndjson`. Trip row written. Telegram BLOCKED posted.
+- **`cooldown`** — per-`(from,to)` interval `< AGENT_BUS_COOLDOWN_SEC` (default 5s; Yefet 30s). NO row in `messages.ndjson`. Trip row written. Telegram BLOCKED posted.
 - **`unknown_reply`**, **`body_too_big`**, **`bad_recipient`**, **`bus_paused`** — also rejected; only `hop_limit` and `cooldown` post the BLOCKED notice to Telegram. (Minor gap per `PLAN-A-MV-DONE-EVIDENCE.md` deviations §4 — all six rejection codes SHOULD post; tracked for follow-up.)
 
 ---
 
-## 7. Galileo-specific overrides
+## 7. Yefet-specific overrides
 
-- **`MAX_HOPS=3`** — Galileo's bus instance starts with `AGENT_BUS_MAX_HOPS=3` (tighter than the global default of 4). Accepted hops 0,1,2; hop=3 rejected.
-- **`COOLDOWN_SEC=30`** — Galileo's cooldown is 30s per `(from,to)` pair (vs. global 5s default).
-- **`galileo.fallback` envelope** — On every entry into fallback mode, galileo emits a `galileo.fallback` envelope (per BP1 Addendum A and FINAL-PLAN.md line 514). Phase 4 aggregator counts these rows.
-- **Fallback flag file** — Galileo writes `${AGENT_BUS_DIR}/.fallback-mode.<chain_id>` on fallback entry. While the file exists, `MAX_HOPS` for that chain is effectively 1 (sentinel + immediate gate verdict; no further hops allowed). The flag is removed when galileo reverts to DELEGATE.
+- **`MAX_HOPS=3`** — Yefet's bus instance starts with `AGENT_BUS_MAX_HOPS=3` (tighter than the global default of 4). Accepted hops 0,1,2; hop=3 rejected.
+- **`COOLDOWN_SEC=30`** — Yefet's cooldown is 30s per `(from,to)` pair (vs. global 5s default).
+- **`yefet.fallback` envelope** — On every entry into fallback mode, yefet emits a `yefet.fallback` envelope (per BP1 Addendum A and FINAL-PLAN.md line 514). Phase 4 aggregator counts these rows.
+- **Fallback flag file** — Yefet writes `${AGENT_BUS_DIR}/.fallback-mode.<chain_id>` on fallback entry. While the file exists, `MAX_HOPS` for that chain is effectively 1 (sentinel + immediate gate verdict; no further hops allowed). The flag is removed when yefet reverts to DELEGATE.
 
 ---
 
 ## 8. Example envelopes
 
-### 8.1 `task_brief` — Galileo dispatches to Captain
+### 8.1 `task_brief` — Yefet dispatches to Captain
 
 Transport row in `messages.ndjson`:
 ```json
-{"id":"01KRCM2P5N1XYHFT9G3VB6KQDC","ts":"2026-05-12T09:14:22.103Z","from":"galileo","to":"captain","reply_to":null,"subject":"GON-127: add settlement-card RTL caret","body":"<json below>","hop_count":0,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
+{"id":"01KRCM2P5N1XYHFT9G3VB6KQDC","ts":"2026-05-12T09:14:22.103Z","from":"yefet","to":"captain","reply_to":null,"subject":"GON-127: add settlement-card RTL caret","body":"<json below>","hop_count":0,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
 ```
 
 `body` (squad envelope):
@@ -171,7 +171,7 @@ Transport row in `messages.ndjson`:
 {
   "id": "01KRCM2P5N1XYHFT9G3VB6KQDC",
   "ts": "2026-05-12T09:14:22.103Z",
-  "from": "galileo",
+  "from": "yefet",
   "to": "captain",
   "chain_id": "01KRCM2P5N1XYHFT9G3VB6KQDC",
   "hop_count": 0,
@@ -220,7 +220,7 @@ Transport row:
 
 Transport row:
 ```json
-{"id":"01KRCMK4WGAR3T8Z5X9YPN1EHV","ts":"2026-05-12T09:42:55.001Z","from":"captain","to":"galileo","reply_to":"01KRCM2P5N1XYHFT9G3VB6KQDC","subject":"GON-127 babysitter.gate PASS","body":"<json below>","hop_count":1,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
+{"id":"01KRCMK4WGAR3T8Z5X9YPN1EHV","ts":"2026-05-12T09:42:55.001Z","from":"captain","to":"yefet","reply_to":"01KRCM2P5N1XYHFT9G3VB6KQDC","subject":"GON-127 babysitter.gate PASS","body":"<json below>","hop_count":1,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
 ```
 
 `body`:
@@ -229,7 +229,7 @@ Transport row:
   "id": "01KRCMK4WGAR3T8Z5X9YPN1EHV",
   "ts": "2026-05-12T09:42:55.001Z",
   "from": "captain",
-  "to": "galileo",
+  "to": "yefet",
   "chain_id": "01KRCM2P5N1XYHFT9G3VB6KQDC",
   "hop_count": 1,
   "reply_to": "01KRCM2P5N1XYHFT9G3VB6KQDC",
