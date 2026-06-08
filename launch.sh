@@ -348,30 +348,35 @@ PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus}
 # "tiled split smallest-client-wins" cramming that produced 34-col Leo and
 # 172-col Iris under the old layout. ttyd users navigate windows via
 # Ctrl-b n/p (or click in the war-room 2.0 tab bar).
+#
+# Note: tmux.conf sets base-index 1 + pane-base-index 1, so windows live at
+# indices 1, 2, 3 (NOT 0, 1, 2) and each window's lone pane is at .1.
 IFS=':' read -r name token_var model <<< "${AGENTS[0]}"
 tmux new-session -d -s "$SESSION" -x 200 -y 50 \
   -n "${PANE_LABELS[0]}" \
   "/workspace/agents/${name}/start.sh"
 tmux set-option -t "$SESSION" remain-on-exit on
-tmux set-window-option -t "$SESSION:0" aggressive-resize on
+tmux set-window-option -t "$SESSION:1" aggressive-resize on
 
-# Remaining agents each get their own window
+# Remaining agents each get their own window (indices 2, 3)
 for i in 1 2; do
   IFS=':' read -r name token_var model <<< "${AGENTS[$i]}"
+  win_idx=$((i + 1))
   tmux new-window -t "$SESSION" -n "${PANE_LABELS[$i]}" \
     "/workspace/agents/${name}/start.sh"
-  tmux set-window-option -t "$SESSION:$i" aggressive-resize on
+  tmux set-window-option -t "$SESSION:$win_idx" aggressive-resize on
 done
 
-# Pin pane titles (each window has one pane at index 0)
+# Pin pane titles (windows 1/2/3; each window has one pane at pane-base-index 1)
 for i in 0 1 2; do
+  win_idx=$((i + 1))
   if [ -n "${PANE_LABELS[$i]:-}" ]; then
-    tmux select-pane -t "$SESSION:$i.0" -T "${PANE_LABELS[$i]}"
+    tmux select-pane -t "$SESSION:$win_idx.1" -T "${PANE_LABELS[$i]}"
   fi
 done
 
 # Focus the first window so ttyd attaches there by default
-tmux select-window -t "$SESSION:0"
+tmux select-window -t "$SESSION:1"
 
 echo "[war-room] tmux session '$SESSION' created with ${#AGENTS[@]} windows (one per agent)"
 
