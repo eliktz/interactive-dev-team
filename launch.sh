@@ -342,29 +342,38 @@ echo "[war-room] Creating tmux session '$SESSION'..."
 # Agents auto-restart on exit via start.sh wrapper.
 PANE_LABELS=("Captain (${CAPTAIN_MODEL:-sonnet})" "CEO Yefet (${CEO_MODEL:-opus})" "UX Hedva (${UX_MODEL:-sonnet})")
 
-# Create first agent's tmux session
+# Each agent gets its OWN tmux window (not a split pane). This way each
+# window's geometry is independent of the others, so war-room 2.0 (and any
+# other client) can drive each tab at the full terminal width without the
+# "tiled split smallest-client-wins" cramming that produced 34-col Leo and
+# 172-col Iris under the old layout. ttyd users navigate windows via
+# Ctrl-b n/p (or click in the war-room 2.0 tab bar).
 IFS=':' read -r name token_var model <<< "${AGENTS[0]}"
 tmux new-session -d -s "$SESSION" -x 200 -y 50 \
+  -n "${PANE_LABELS[0]}" \
   "/workspace/agents/${name}/start.sh"
 tmux set-option -t "$SESSION" remain-on-exit on
+tmux set-window-option -t "$SESSION:0" aggressive-resize on
 
-# Remaining agents get split panes
+# Remaining agents each get their own window
 for i in 1 2; do
   IFS=':' read -r name token_var model <<< "${AGENTS[$i]}"
-  tmux split-window -t "$SESSION" \
+  tmux new-window -t "$SESSION" -n "${PANE_LABELS[$i]}" \
     "/workspace/agents/${name}/start.sh"
+  tmux set-window-option -t "$SESSION:$i" aggressive-resize on
 done
-tmux select-layout -t "$SESSION" tiled
 
-# Label panes (use pane IDs to avoid base-index issues from tmux.conf)
-PANE_IDS=($(tmux list-panes -t "$SESSION" -F '#{pane_id}'))
+# Pin pane titles (each window has one pane at index 0)
 for i in 0 1 2; do
-  if [ -n "${PANE_IDS[$i]:-}" ] && [ -n "${PANE_LABELS[$i]:-}" ]; then
-    tmux select-pane -t "${PANE_IDS[$i]}" -T "${PANE_LABELS[$i]}"
+  if [ -n "${PANE_LABELS[$i]:-}" ]; then
+    tmux select-pane -t "$SESSION:$i.0" -T "${PANE_LABELS[$i]}"
   fi
 done
 
-echo "[war-room] tmux session '$SESSION' created with ${#AGENTS[@]} panes"
+# Focus the first window so ttyd attaches there by default
+tmux select-window -t "$SESSION:0"
+
+echo "[war-room] tmux session '$SESSION' created with ${#AGENTS[@]} windows (one per agent)"
 
 # --- Start ttyd ---
 TTYD_ARGS=(--writable --port 7681)
@@ -391,10 +400,13 @@ echo "[war-room] ttyd started (pid=$TTYD_PID)"
 echo "[war-room] War room is live at http://localhost:7681"
 
 # --- Keep pane titles pinned (Claude Code overrides them via escape sequences) ---
+# Note: ``-a`` lists panes across ALL windows in the session (one pane per
+# window since the layout flip on 2026-06-08); without ``-a`` we'd only
+# see the currently-focused window's pane.
 (
   while true; do
     sleep 10
-    PANE_IDS_BG=($(tmux list-panes -t "$SESSION" -F '#{pane_id}' 2>/dev/null)) || break
+    PANE_IDS_BG=($(tmux list-panes -a -t "$SESSION" -F '#{pane_id}' 2>/dev/null)) || break
     for i in 0 1 2; do
       if [ -n "${PANE_IDS_BG[$i]:-}" ] && [ -n "${PANE_LABELS[$i]:-}" ]; then
         tmux select-pane -t "${PANE_IDS_BG[$i]}" -T "${PANE_LABELS[$i]}" 2>/dev/null

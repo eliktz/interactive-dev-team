@@ -67,11 +67,51 @@ class TmuxSession:
             container, "sh", "-c", script, timeout=10.0
         )
 
+    async def capture_snapshot(self) -> bytes:
+        """Grab the current rendered pane content WITH escape sequences.
+
+        Initializes the browser xterm.js to the same visible state as tmux's
+        actual pane. Without this, the browser opens blank and subsequent
+        cursor-up / line-clear escape codes from the pipe-pane log target
+        coordinates that don't exist in the browser's empty grid, producing
+        the stacked/repeated/garbled rendering seen in long-running panes
+        (the "Iris-corruption" pattern).
+
+        ``-p`` = print to stdout. ``-e`` = include ANSI escape codes so
+        colors + styles match. ``-J`` = preserve wrapped lines. We prepend
+        a ``\\x1b[2J\\x1b[H`` (clear screen + home) so the snapshot lays
+        out cleanly at the top.
+        """
+        try:
+            rendered = await docker_client.exec_text_async(
+                self.agent.container,
+                "tmux",
+                "capture-pane",
+                "-p",
+                "-e",
+                "-J",
+                "-t",
+                self.agent.tmux_target or "",
+                timeout=5.0,
+            )
+        except Exception as e:  # pragma: no cover — best effort
+            log.warning("capture-pane snapshot failed for %s: %s", self.agent.id, e)
+            return b""
+        # Clear-screen + cursor-home, then the snapshot.
+        return b"\x1b[2J\x1b[H" + rendered.encode("utf-8", errors="replace")
+
     async def attach(self) -> AsyncIterator[bytes]:
-        """Async generator that yields pane output bytes as they arrive."""
+        """Async generator that yields pane output bytes as they arrive.
+
+        First emits the current rendered pane snapshot (so the xterm.js view
+        opens populated and aligned with tmux's pane state), then tails the
+        pipe-pane log for live updates. ``tail -n 0`` skips backlog — fresh
+        bytes only.
+        """
         await self.ensure_pipe()
-        # tail -F follows file rotation. ``-n 0`` so we don't re-flood every
-        # reconnect; scrollback replay is a separate /api/.../scrollback call.
+        snapshot = await self.capture_snapshot()
+        if snapshot:
+            yield snapshot
         gen = docker_client.exec_streaming(
             self.agent.container,
             "tail",
