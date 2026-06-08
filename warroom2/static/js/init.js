@@ -186,6 +186,14 @@
     });
   }
 
+  function bindWizardButton() {
+    var btn = document.getElementById('btn-mount-agent');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      if (window.WRWizard) window.WRWizard.open();
+    });
+  }
+
   function bindTipsFooter() {
     var toggle = document.getElementById('tips-toggle');
     var content = document.getElementById('tips-content');
@@ -241,6 +249,7 @@
     bindDivider();
     bindCollapse();
     bindTipsFooter();
+    bindWizardButton();
     if (window.WRTabs) window.WRTabs.bindKeyboard();
 
     await ensureAuth();

@@ -148,6 +148,12 @@ services:
       WARROOM2_OPENCLAW_CONTAINER: interactive-dev-team-openclaw-1
       WARROOM2_TMUX_SESSION: war-room
       WARROOM2_STATE_DB: /var/lib/warroom2/state.db
+      # Admin wizard: token required to invoke /api/admin/wizard/*.
+      # Leave empty to disable the wizard (endpoints return 503).
+      WARROOM2_ADMIN_TOKEN: ${WARROOM2_ADMIN_TOKEN:-}
+      WARROOM2_REPO_ROOT: /workspace/interactive-dev-team
+      # Pass through operator id as default for wizard step 2.
+      OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
     volumes:
       # Read-only docker socket so warroom2 can `docker exec` into war-room + openclaw
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -158,6 +164,9 @@ services:
       - project-repo:/workspace/project:ro
       # Persistent state (scrollback cache, SQLite)
       - warroom2-state:/var/lib/warroom2
+      # RW bind for the admin wizard: lets the wizard mutate launch.sh,
+      # .env, and agents/* on the host. ONLY mounted into warroom2.
+      - /home/ravi/interactive-dev-team:/workspace/interactive-dev-team:rw
     depends_on:
       war-room:
         condition: service_healthy

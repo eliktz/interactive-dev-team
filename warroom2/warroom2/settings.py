@@ -21,6 +21,8 @@ class Settings:
     openclaw_container: str = "interactive-dev-team-openclaw-1"
     tmux_session: str = "war-room"
     state_db_path: str = "/var/lib/warroom2/state.db"
+    admin_token: str = ""
+    interactive_dev_team_root: str = "/workspace/interactive-dev-team"
 
     @property
     def auth_enabled(self) -> bool:
@@ -43,6 +45,10 @@ def _load() -> Settings:
         tmux_session=os.environ.get("WARROOM2_TMUX_SESSION", "war-room"),
         state_db_path=os.environ.get(
             "WARROOM2_STATE_DB", "/var/lib/warroom2/state.db"
+        ),
+        admin_token=os.environ.get("WARROOM2_ADMIN_TOKEN", ""),
+        interactive_dev_team_root=os.environ.get(
+            "WARROOM2_REPO_ROOT", "/workspace/interactive-dev-team"
         ),
     )
 

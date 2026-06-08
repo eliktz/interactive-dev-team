@@ -26,6 +26,7 @@ from .event_relay import router as events_router
 from .files_api import router as files_router
 from .settings import settings
 from .tmux_bridge import manager as tmux_manager
+from .wizard_api import router as wizard_router
 from .ws_relay import router as ws_router
 
 log = logging.getLogger(__name__)
@@ -103,5 +104,6 @@ def create_app() -> FastAPI:
     app.include_router(files_router)
     app.include_router(events_router)
     app.include_router(ws_router)
+    app.include_router(wizard_router)
 
     return app
