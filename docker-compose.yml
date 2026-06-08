@@ -135,7 +135,36 @@ services:
       - "8931:8931"
     restart: unless-stopped
 
+  warroom2:
+    build: ./warroom2
+    container_name: interactive-dev-team-warroom2-1
+    ports:
+      - "${WARROOM2_PORT:-7682}:8080"
+    environment:
+      WARROOM2_BASIC_AUTH_USER: ${WARROOM2_BASIC_AUTH_USER:-}
+      WARROOM2_BASIC_AUTH_PASS: ${WARROOM2_BASIC_AUTH_PASS:-}
+      WARROOM2_BUS_PATH: /workspace/agent-bus/messages.ndjson
+      WARROOM2_WARROOM_CONTAINER: interactive-dev-team-war-room-1
+      WARROOM2_OPENCLAW_CONTAINER: interactive-dev-team-openclaw-1
+      WARROOM2_TMUX_SESSION: war-room
+      WARROOM2_STATE_DB: /var/lib/warroom2/state.db
+    volumes:
+      # Read-only docker socket so warroom2 can `docker exec` into war-room + openclaw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Shared bus journal (war-room VM host path → container)
+      - /var/lib/warroom-bus:/workspace/agent-bus
+      # Read-only persona/project access
+      - ./agents:/workspace/agents:ro
+      - project-repo:/workspace/project:ro
+      # Persistent state (scrollback cache, SQLite)
+      - warroom2-state:/var/lib/warroom2
+    depends_on:
+      war-room:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   war-room-state:
   paperclip-data:
   project-repo:
+  warroom2-state:
