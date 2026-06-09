@@ -67,8 +67,12 @@ class TmuxPtySession:
         windows with the base but has its own current-window state, so each
         browser tab stays put on the window it asked for.
 
-        ``destroy-unattached on`` makes the linked session vanish the moment
-        the client detaches (browser tab close / WS error), so no GC needed.
+        Cleanup of the linked session is handled by ``close()`` (kill-session
+        on the linked name). We deliberately do NOT set ``destroy-unattached
+        on`` here — that option destroys a session the moment it has no
+        attached clients, and tmux fires it immediately after ``new-session
+        -d`` (the session is created detached), wiping the linked session
+        before ``select-window`` / ``attach`` can run.
         """
         target = self.agent.tmux_target or ""
         base, _, window = target.partition(":")
@@ -81,7 +85,6 @@ class TmuxPtySession:
         # the shell — no orphan sh wrapper to clean up).
         script = (
             f"tmux new-session -d -t {base} -s {linked} -x 200 -y 50 && "
-            f"tmux set-option -t {linked} destroy-unattached on >/dev/null && "
             f"tmux select-window -t {linked}:{window} && "
             f"exec tmux attach -t {linked}"
         )
