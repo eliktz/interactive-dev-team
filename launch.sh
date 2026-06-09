@@ -291,6 +291,23 @@ ACCESSEOF
   fi
 done
 
+# --- Per-agent .claude/ dirs so each agent is its OWN project root ---
+# Without this, Claude Code walks up from /workspace/agents/<id> looking
+# for a .claude/ marker and finds /workspace/.claude/ (subagent defs),
+# making /workspace the shared project root. All agents then read/write
+# one shared MEMORY.md pool — Leo's identity claims contaminate Captain
+# and Iris on session start. Fix: each agent has its own .claude/ that
+# shadows the parent's; subagent defs stay shared via symlink.
+for agent_def in "${AGENTS[@]}"; do
+  IFS=':' read -r name _ _ <<< "$agent_def"
+  AGENT_CLAUDE="/workspace/agents/${name}/.claude"
+  mkdir -p "$AGENT_CLAUDE"
+  if [ ! -L "$AGENT_CLAUDE/agents" ] && [ -d /workspace/.claude/agents ]; then
+    ln -sf /workspace/.claude/agents "$AGENT_CLAUDE/agents"
+  fi
+done
+echo "[war-room] per-agent .claude/ dirs ensured (memory isolation)"
+
 # --- Generate per-agent start scripts ---
 # These ensure agents always restart with the correct flags.
 # If someone manually restarts an agent, they can just run ./start.sh
