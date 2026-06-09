@@ -43,28 +43,32 @@ class TmuxSession:
         self._tail_proc: Optional[asyncio.subprocess.Process] = None
 
     async def ensure_pipe(self) -> None:
-        """Idempotent setup: ensure pipe-pane is currently attached.
+        """Ensure pipe-pane is currently attached to this agent's tmux pane.
 
-        Previously this used a sentinel marker file on disk so we wouldn't
-        re-run ``pipe-pane -o`` on every attach. The bug: after a tmux
-        restart (war-room container restart), the in-memory pipe-pane
-        attachment is gone, but the marker file persists in the writable
-        layer — so we'd skip re-attaching and the log file would never
-        receive any more bytes. Browsers connected fine (snapshot worked)
-        but saw no live updates, looking like the agent was frozen.
+        Empirically, ``tmux pipe-pane -o``  is NOT idempotent on this
+        tmux build: running it on an already-piped pane TURNS OFF the
+        pipe. (The manpage says "-o: only open if no previous pipe
+        exists", but the observed behavior closes the pipe instead.)
 
-        Fix: drop the marker entirely. ``tmux pipe-pane -o`` is itself a
-        no-op when a pipe is already attached (the ``-o`` flag means "only
-        open"), so we can run it unconditionally — it self-heals after a
-        tmux restart and is cheap on the steady-state path.
+        So we read ``#{pane_pipe}`` first and only run ``pipe-pane`` if
+        the pane is currently NOT piped. This makes the function
+        idempotent across:
+        - first attach (pipe = 0 → set up)
+        - WS reconnect with healthy pipe (pipe = 1 → no-op)
+        - WS reconnect after tmux restart (pipe = 0, marker stale → set up)
         """
         container = self.agent.container
         target = self.agent.tmux_target
         log_path = _log_path(self.agent.id)
+        # One shell roundtrip: prepare dir+file, then only attach pipe if
+        # not already running.
         script = (
             f"mkdir -p {_PIPE_DIR} && "
             f"touch {log_path} && "
-            f"tmux pipe-pane -o -t {target} 'cat >> {log_path}'"
+            f"state=$(tmux display-message -p -t {target} '#{{pane_pipe}}' 2>/dev/null || echo 0) && "
+            f"if [ \"$state\" != 1 ]; then "
+            f"  tmux pipe-pane -O -t {target} 'cat >> {log_path}'; "
+            f"fi"
         )
         await docker_client.exec_text_async(
             container, "sh", "-c", script, timeout=10.0
