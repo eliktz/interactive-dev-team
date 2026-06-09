@@ -2,8 +2,8 @@
 
 - ``GET  /api/agents``                       list agents + last-activity ts
 - ``POST /api/agents/{id}/send-message``     write to tmux send-keys or bus
-- ``GET  /api/agents/{id}/scrollback``       last N lines of pipe-pane log
-                                              (bus tail for Yefet)
+- ``GET  /api/agents/{id}/scrollback``       last N lines via tmux
+                                              capture-pane (bus tail for Yefet)
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from .agent_registry import Agent, get_agent, list_agents
 from .auth import basic_auth_dependency
 from . import docker_client
 from .settings import settings
-from .tmux_bridge import _log_path as _tmux_log_path, manager as tmux_manager
 from .yefet_bridge import YefetBusSession
 
 log = logging.getLogger(__name__)
@@ -85,10 +84,21 @@ async def send_message(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown agent")
 
     if agent.attach == "tmux":
-        session = tmux_manager.get(agent)
-        await session.send_input(body.text, literal=True)
+        # Phase B: live PTY sessions are owned by WS handlers, so the REST
+        # send-message path uses one-shot side-channel ``docker exec tmux
+        # send-keys`` calls. ``-l`` sends the text verbatim; a follow-up
+        # ``Enter`` key event fires submission when requested. This bypasses
+        # the PTY entirely — clean and parallel-safe vs. any open WS.
+        target = agent.tmux_target or ""
+        await docker_client.exec_text_async(
+            agent.container, "tmux", "send-keys", "-t", target, "-l", body.text,
+            timeout=5.0,
+        )
         if body.press_enter:
-            await session.send_input("Enter", literal=False)
+            await docker_client.exec_text_async(
+                agent.container, "tmux", "send-keys", "-t", target, "Enter",
+                timeout=5.0,
+            )
         return {"ok": True, "via": "tmux", "agent": agent.id}
 
     if agent.attach == "bus":
@@ -140,13 +150,16 @@ async def scrollback(
     limit = max(1, min(int(limit), 5000))
 
     if agent.attach == "tmux":
-        log_path = _tmux_log_path(agent.id)
+        # Phase B: pipe-pane log files are gone. Capture the last ``limit``
+        # lines straight from tmux's pane history via ``capture-pane -S -N``.
+        # ``-e`` keeps ANSI escapes so colors survive; ``-J`` preserves
+        # wrapped lines; ``-p`` prints to stdout.
+        target = agent.tmux_target or ""
         try:
             text = await docker_client.exec_text_async(
                 agent.container,
-                "sh",
-                "-c",
-                f"tail -n {limit} {log_path} 2>/dev/null || true",
+                "tmux", "capture-pane", "-p", "-e", "-J",
+                "-t", target, "-S", f"-{limit}",
                 timeout=5.0,
             )
         except Exception as e:

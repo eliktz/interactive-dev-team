@@ -12,7 +12,12 @@ All functions assume Python 3.11+ asyncio.
 from __future__ import annotations
 
 import asyncio
+import fcntl
+import os
+import pty
+import struct
 import subprocess
+import termios
 from typing import AsyncIterator, List, Tuple
 
 
@@ -95,6 +100,46 @@ async def exec_streaming(
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
+
+
+def set_winsize(fd: int, rows: int, cols: int) -> None:
+    """Set the window size on a PTY master fd via ``TIOCSWINSZ``.
+
+    Used to push the browser xterm.js geometry through to tmux so its
+    aggressive-resize redraw targets the receiver's actual viewport.
+    """
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+
+async def exec_pty(
+    container: str, *cmd: str
+) -> Tuple[asyncio.subprocess.Process, int]:
+    """Spawn ``docker exec -i -t <container> <cmd...>`` attached to a fresh PTY.
+
+    Returns ``(process, master_fd)``. Caller owns both — must terminate the
+    process AND ``os.close(master_fd)`` on cleanup. The initial winsize is
+    24x80; clients should send their real size via ``TIOCSWINSZ`` (or this
+    module's ``set_winsize``) immediately after attach so tmux's first redraw
+    targets the right geometry.
+
+    The ``-i -t`` flags are both required: ``-i`` keeps stdin open so we can
+    forward keystrokes, ``-t`` makes docker allocate a TTY on the container
+    side. We provide our own PTY via ``pty.openpty()``; the slave fd becomes
+    docker exec's stdio so the CLI's ``isatty`` check passes even though
+    warroom2 itself is daemonized.
+    """
+    master, slave = pty.openpty()
+    set_winsize(master, 24, 80)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", "-i", "-t",
+            "-e", "TERM=xterm-256color",
+            container, *cmd,
+            stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+        )
+    finally:
+        os.close(slave)
+    return proc, master
 
 
 async def exec_attach_stdio(
