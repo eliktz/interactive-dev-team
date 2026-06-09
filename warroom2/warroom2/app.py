@@ -3,8 +3,8 @@
 Wires:
 - Static files at ``/static`` + ``GET /`` → ``static/index.html``.
 - Routers: ``agents_api``, ``files_api``, ``event_relay``, ``ws_relay``.
-- Startup: ensure ``/tmp/warroom2`` exists in the war-room container and
-  pipe-pane is set up for each tmux agent (idempotent).
+- Startup: no per-agent pre-warm — PTY sessions are spawned per WebSocket
+  on demand (Phase B).
 - Settings singleton from ``settings.py``.
 - No CORS (same-origin only).
 """
@@ -19,7 +19,6 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .agent_registry import list_agents
 from .agents_api import router as agents_router
 from .auth import basic_auth_dependency
 from .event_relay import router as events_router
@@ -43,18 +42,6 @@ def _resolve_static_dir() -> str:
     return candidate
 
 
-async def _bootstrap_tmux_pipes() -> None:
-    for agent in list_agents():
-        if agent.attach != "tmux":
-            continue
-        try:
-            sess = tmux_manager.get(agent)
-            await sess.ensure_pipe()
-            log.info("pipe-pane ready for %s (%s)", agent.id, agent.tmux_target)
-        except Exception as e:
-            log.warning("pipe-pane setup failed for %s: %s", agent.id, e)
-
-
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     log.info(
@@ -63,7 +50,6 @@ async def _lifespan(app: FastAPI):
         settings.bus_path,
         settings.tmux_session,
     )
-    await _bootstrap_tmux_pipes()
     yield
     await tmux_manager.close_all()
     log.info("warroom2 stopped")
