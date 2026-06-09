@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import uuid
 from typing import Optional
 
 from .agent_registry import Agent
@@ -53,12 +54,39 @@ class TmuxPtySession:
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._master: Optional[int] = None
         self._closed = False
+        self._linked: Optional[str] = None
 
     async def attach(self) -> None:
-        """Spawn the docker-exec tmux-attach subprocess and capture PTY master."""
+        """Spawn the docker-exec tmux-attach subprocess and capture PTY master.
+
+        Uses a per-WS *grouped session* (tmux ``new-session -t <base>``) instead
+        of attaching directly to the base session. Without grouping, multiple
+        clients share one current-window pointer — so ``attach -t base:N``
+        pulls every other client to window N, and whichever browser tab
+        connects last wins for all of them. A grouped session shares all
+        windows with the base but has its own current-window state, so each
+        browser tab stays put on the window it asked for.
+
+        ``destroy-unattached on`` makes the linked session vanish the moment
+        the client detaches (browser tab close / WS error), so no GC needed.
+        """
         target = self.agent.tmux_target or ""
+        base, _, window = target.partition(":")
+        if not base or not window:
+            raise ValueError(f"tmux_target must be 'session:window', got {target!r}")
+        linked = f"{base}-cli-{uuid.uuid4().hex[:8]}"
+        self._linked = linked
+        # One sh -c invocation: create the linked session, select the desired
+        # window on it, then exec into attach (so the attach process replaces
+        # the shell — no orphan sh wrapper to clean up).
+        script = (
+            f"tmux new-session -d -t {base} -s {linked} -x 200 -y 50 && "
+            f"tmux set-option -t {linked} destroy-unattached on >/dev/null && "
+            f"tmux select-window -t {linked}:{window} && "
+            f"exec tmux attach -t {linked}"
+        )
         self._proc, self._master = await docker_client.exec_pty(
-            self.agent.container, "tmux", "attach", "-t", target,
+            self.agent.container, "sh", "-c", script,
         )
 
     async def read(self, max_bytes: int = 4096) -> bytes:
@@ -143,6 +171,20 @@ class TmuxPtySession:
             try:
                 os.close(master)
             except OSError:
+                pass
+        # Belt-and-suspenders: kill the linked grouped session in case
+        # `destroy-unattached on` didn't fire (e.g., subprocess died before
+        # the attach completed). Best-effort; ignore failures.
+        linked = self._linked
+        self._linked = None
+        if linked:
+            try:
+                await docker_client.exec_text_async(
+                    self.agent.container,
+                    "tmux", "kill-session", "-t", linked,
+                    timeout=2.0,
+                )
+            except Exception:
                 pass
 
 
