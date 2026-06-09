@@ -43,25 +43,28 @@ class TmuxSession:
         self._tail_proc: Optional[asyncio.subprocess.Process] = None
 
     async def ensure_pipe(self) -> None:
-        """Idempotent setup: mkdir, ensure pipe-pane attached once.
+        """Idempotent setup: ensure pipe-pane is currently attached.
 
-        We use a marker file so subsequent attaches (reload, multi-tab) don't
-        toggle ``pipe-pane -o`` off.
+        Previously this used a sentinel marker file on disk so we wouldn't
+        re-run ``pipe-pane -o`` on every attach. The bug: after a tmux
+        restart (war-room container restart), the in-memory pipe-pane
+        attachment is gone, but the marker file persists in the writable
+        layer — so we'd skip re-attaching and the log file would never
+        receive any more bytes. Browsers connected fine (snapshot worked)
+        but saw no live updates, looking like the agent was frozen.
+
+        Fix: drop the marker entirely. ``tmux pipe-pane -o`` is itself a
+        no-op when a pipe is already attached (the ``-o`` flag means "only
+        open"), so we can run it unconditionally — it self-heals after a
+        tmux restart and is cheap on the steady-state path.
         """
         container = self.agent.container
         target = self.agent.tmux_target
         log_path = _log_path(self.agent.id)
-        marker = _marker_path(self.agent.id)
-        # mkdir + check marker + (maybe) pipe-pane. All in one shell so it's
-        # one docker exec round-trip.
         script = (
             f"mkdir -p {_PIPE_DIR} && "
-            f"if [ ! -f {marker} ]; then "
-            f"  : > {log_path} && "
-            f"  tmux pipe-pane -o -t {target} "
-            f"    'cat >> {log_path}' && "
-            f"  touch {marker}; "
-            f"fi"
+            f"touch {log_path} && "
+            f"tmux pipe-pane -o -t {target} 'cat >> {log_path}'"
         )
         await docker_client.exec_text_async(
             container, "sh", "-c", script, timeout=10.0
