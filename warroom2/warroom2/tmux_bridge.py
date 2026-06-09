@@ -129,14 +129,50 @@ class TmuxSession:
         ``literal=True`` uses ``-l`` so the data is sent verbatim (no key
         interpretation). For Enter / control sequences, call with
         ``literal=False`` and pass a tmux key name (e.g. ``"Enter"``).
+
+        Browser xterm.js fires Enter as a raw ``\\r`` (or ``\\n``) byte.
+        Sending ``\\r`` with ``-l`` puts a literal CR into the pane's input
+        stream, which Claude Code's TUI does NOT interpret as Enter. We
+        split the input around ``\\r`` and ``\\n`` and emit the ``Enter``
+        tmux key name for each break, so submissions actually fire.
         """
-        cmd = ["tmux", "send-keys", "-t", self.agent.tmux_target or ""]
-        if literal:
-            cmd.append("-l")
-        cmd.append(data)
-        await docker_client.exec_text_async(
-            self.agent.container, *cmd, timeout=5.0
-        )
+        target = self.agent.tmux_target or ""
+        # Fast path: pure-text input with no line breaks.
+        if literal and "\r" not in data and "\n" not in data:
+            await docker_client.exec_text_async(
+                self.agent.container, "tmux", "send-keys", "-t", target, "-l", data,
+                timeout=5.0,
+            )
+            return
+        if not literal:
+            await docker_client.exec_text_async(
+                self.agent.container, "tmux", "send-keys", "-t", target, data,
+                timeout=5.0,
+            )
+            return
+        # Split around CR/LF and send Enter for each break. CRLF / LFCR count
+        # as one Enter (consume the partner).
+        i = 0
+        n = len(data)
+        while i < n:
+            j = i
+            while j < n and data[j] not in ("\r", "\n"):
+                j += 1
+            if j > i:
+                await docker_client.exec_text_async(
+                    self.agent.container, "tmux", "send-keys", "-t", target, "-l", data[i:j],
+                    timeout=5.0,
+                )
+            if j < n:
+                await docker_client.exec_text_async(
+                    self.agent.container, "tmux", "send-keys", "-t", target, "Enter",
+                    timeout=5.0,
+                )
+                # Consume CRLF or LFCR pair as a single Enter.
+                if j + 1 < n and data[j + 1] in ("\r", "\n") and data[j + 1] != data[j]:
+                    j += 1
+                j += 1
+            i = j
 
     async def resize(self, cols: int, rows: int) -> None:
         """Best-effort pane resize. tmux smallest-client-wins; we don't fail."""
