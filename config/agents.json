@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "captain",
+      "name": "Captain",
+      "label": "Captain",
+      "attach": "tmux",
+      "window": 1,
+      "persona_dir": "captain",
+      "model_env": "CAPTAIN_MODEL",
+      "model_default": "sonnet",
+      "token_env": "CAPTAIN_TELEGRAM_TOKEN",
+      "color": "#7fd3ff"
+    },
+    {
+      "id": "leo",
+      "name": "Leo",
+      "label": "CEO Yefet",
+      "attach": "tmux",
+      "window": 2,
+      "persona_dir": "ceo-gonorth",
+      "model_env": "CEO_MODEL",
+      "model_default": "opus",
+      "token_env": "CEO_GONORTH_TELEGRAM_TOKEN",
+      "color": "#ffa657"
+    },
+    {
+      "id": "iris",
+      "name": "Iris (Hedva)",
+      "label": "UX Hedva",
+      "attach": "tmux",
+      "window": 3,
+      "persona_dir": "ux-gonorth",
+      "model_env": "UX_MODEL",
+      "model_default": "sonnet",
+      "token_env": "UX_GONORTH_TELEGRAM_TOKEN",
+      "color": "#d2a8ff"
+    },
+    {
+      "id": "yefet",
+      "name": "Yefet",
+      "attach": "bus",
+      "model_default": "gpt-5.5",
+      "persona_path": "/home/node/.openclaw/workspace-gonorth/AGENTS.md",
+      "container": "interactive-dev-team-openclaw-1",
+      "color": "#7ee787"
+    }
+  ]
+}

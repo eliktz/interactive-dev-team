@@ -76,14 +76,19 @@
     if (step >= 1) {
       if (!SLUG_RE.test(a.slug)) errs.push('Slug must match a-z, 3-31 chars, lowercase-dash.');
       if (!a.display_name || a.display_name.length > 40) errs.push('Display name 1-40 chars.');
+      // '|' and newlines would corrupt launch.sh's pipe-joined roster rows
+      // (server rejects these too — keep mirrored).
+      if (/[|\r\n]/.test(a.display_name)) errs.push('Display name must not contain | or newlines.');
       if (MODELS.indexOf(a.model) < 0) errs.push('Pick a model.');
       if (!COLOR_RE.test(a.color)) errs.push('Color must be #RRGGBB.');
     }
     if (step >= 2) {
-      if (!TG_TOKEN_RE.test(a.telegram.token)) errs.push('Telegram token shape invalid.');
+      // Token is optional: empty means a CLI-only agent (no Telegram).
+      var hasToken = !!a.telegram.token;
+      if (hasToken && !TG_TOKEN_RE.test(a.telegram.token)) errs.push('Telegram token shape invalid.');
       if (a.telegram.group_id && !TG_ID_RE.test(a.telegram.group_id)) errs.push('Group ID must be numeric.');
       if (a.telegram.operator_id && !TG_ID_RE.test(a.telegram.operator_id)) errs.push('Operator ID must be numeric.');
-      if (!state.botValidation || !state.botValidation.ok) errs.push('Validate the Telegram token first.');
+      if (hasToken && (!state.botValidation || !state.botValidation.ok)) errs.push('Validate the Telegram token first.');
     }
     if (step >= 3) {
       if (TEMPLATES.indexOf(a.persona.template) < 0) errs.push('Pick a persona template.');
@@ -303,8 +308,9 @@
     var wrap = makeEl('div', { class: 'wz-step' });
     wrap.appendChild(makeEl('h3', { text: '2. Telegram' }));
 
-    wrap.appendChild(input('Bot token', 'telegram.token', {
+    wrap.appendChild(input('Bot token (optional)', 'telegram.token', {
       placeholder: '123456:ABC-DEF...',
+      hint: 'Leave empty for a CLI-only agent (no Telegram)',
       onchange: function () { state.botValidation = null; }
     }));
     var validateBtn = makeEl('button', {
@@ -312,6 +318,12 @@
       text: 'Validate token',
       onclick: async function () {
         state.err = '';
+        // getme needs a token — skip the call entirely when empty (CLI-only agent).
+        if (!state.agent.telegram.token) {
+          state.botValidation = null;
+          state.err = 'No token to validate — leave empty for a CLI-only agent, or paste a token first.';
+          render(); return;
+        }
         if (!TG_TOKEN_RE.test(state.agent.telegram.token)) {
           state.err = 'Token shape invalid.'; render(); return;
         }
