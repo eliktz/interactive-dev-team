@@ -1,9 +1,11 @@
 # Production Dockerfile: AI agent war room
-# Single container running 3 Telegram-facing Claude Code agents in tmux,
-# served via ttyd for web browser access.
+# Single container running 3 Telegram-facing Claude Code agents in tmux.
+# The browser UI is served separately by the warroom2 container (PTY-attach
+# over WebSocket); this container exposes no web port. (Legacy ttyd :7681
+# retired 2026-06-10.)
 #
 # Build:  docker build -t interactive-dev-team .
-# Run:    docker run -d -p 7681:7681 --env-file .env interactive-dev-team
+# Run:    docker run -d --env-file .env interactive-dev-team
 
 FROM node:22-slim
 
@@ -18,15 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# --- install ttyd from GitHub releases (detect arch) ---
-ARG TTYD_VERSION=1.7.7
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "amd64" ]; then TTYD_ARCH="x86_64"; \
-    elif [ "$ARCH" = "arm64" ]; then TTYD_ARCH="aarch64"; \
-    else echo "Unsupported arch: $ARCH" && exit 1; fi && \
-    curl -fSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${TTYD_ARCH}" \
-      -o /usr/local/bin/ttyd && \
-    chmod +x /usr/local/bin/ttyd
+# --- (ttyd web terminal removed 2026-06-10; UI is now the warroom2 container) ---
 
 # --- create non-root user ---
 # CRITICAL: Claude Code refuses --dangerously-skip-permissions when running as root
@@ -108,8 +102,7 @@ RUN node -e ' \
 # --- verify installation ---
 RUN claude --version
 
-# --- expose ttyd web port ---
-EXPOSE 7681
+# --- no web port: UI served by the warroom2 container, not this one ---
 
 # --- health check: verify tmux war-room session exists ---
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \

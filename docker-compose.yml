@@ -2,7 +2,7 @@
 # docker-compose.yml — AI Agent War Room + Paperclip Control Plane
 #
 # Services:
-#   war-room  — 3 Claude Code agents in tmux + ttyd web terminal
+#   war-room  — 3 Claude Code agents in tmux (UI served by warroom2)
 #   paperclip — Paperclip control plane (worker management + web UI)
 #
 # Paperclip source:
@@ -20,8 +20,10 @@
 services:
   war-room:
     build: .
-    ports:
-      - "${TTYD_PORT:-7681}:7681"
+    # No published ports: the legacy ttyd web terminal (:7681) was retired
+    # 2026-06-10 in favor of war-room 2.0 (warroom2 container). The UI reaches
+    # this container's tmux session over the Docker network via docker exec,
+    # not an exposed port. Break-glass: `docker exec <war-room> tmux attach`.
     environment:
       # LLM Provider — claude.ai OAuth is used for Telegram channels.
       # Do NOT set ANTHROPIC_API_KEY here; it conflicts with the OAuth token.
@@ -42,9 +44,6 @@ services:
       CAPTAIN_MODEL: ${CAPTAIN_MODEL:-sonnet}
       CEO_MODEL: ${CEO_MODEL:-opus}
       UX_MODEL: ${UX_MODEL:-sonnet}
-      # ttyd auth
-      TTYD_USERNAME: ${TTYD_USERNAME:-}
-      TTYD_PASSWORD: ${TTYD_PASSWORD:-}
       # Project repo (cloned at startup, used for code + CLAUDE.md overrides)
       GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
       # Bitbucket Cloud (token OR username/password)
