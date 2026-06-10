@@ -1,9 +1,11 @@
 # Production Dockerfile: AI agent war room
-# Single container running 3 Telegram-facing Claude Code agents in tmux,
-# served via ttyd for web browser access.
+# Single container running 3 Telegram-facing Claude Code agents in tmux.
+# The browser UI is served separately by the warroom2 container (PTY-attach
+# over WebSocket); this container exposes no web port. (Legacy ttyd :7681
+# retired 2026-06-10.)
 #
 # Build:  docker build -t interactive-dev-team .
-# Run:    docker run -d -p 7681:7681 --env-file .env interactive-dev-team
+# Run:    docker run -d --env-file .env interactive-dev-team
 
 FROM node:22-slim
 
@@ -18,27 +20,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# --- install ttyd from GitHub releases (detect arch) ---
-ARG TTYD_VERSION=1.7.7
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "amd64" ]; then TTYD_ARCH="x86_64"; \
-    elif [ "$ARCH" = "arm64" ]; then TTYD_ARCH="aarch64"; \
-    else echo "Unsupported arch: $ARCH" && exit 1; fi && \
-    curl -fSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${TTYD_ARCH}" \
-      -o /usr/local/bin/ttyd && \
-    chmod +x /usr/local/bin/ttyd
-
-# --- install Claude Code CLI globally ---
-RUN npm install -g @anthropic-ai/claude-code@latest
+# --- (ttyd web terminal removed 2026-06-10; UI is now the warroom2 container) ---
 
 # --- create non-root user ---
 # CRITICAL: Claude Code refuses --dangerously-skip-permissions when running as root
 RUN useradd -m -s /bin/bash claude
 
-# --- install Bun (required by Telegram plugin for grammy) ---
+# --- install Bun (required by Telegram plugin for grammy) + Claude Code CLI ---
+# Claude Code uses the native installer AS THE claude USER (~/.local/share/claude)
+# so the auto-updater can write to its own install. A root-owned npm -g install
+# pins the version forever: auto-update fails with EACCES for uid 1001 and the
+# container silently falls behind (observed stuck at 2.1.112 while Fable 5
+# required 2.1.170+).
 USER claude
 RUN curl -fsSL https://bun.sh/install | bash
+RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
+
+# Keep `claude` resolvable from the original PATH (tmux server env, scripts)
+RUN ln -sfn /home/claude/.local/bin/claude /usr/local/bin/claude
 
 # --- pre-create state directories ---
 RUN mkdir -p /home/claude/.claude/channels/telegram/inbox \
@@ -56,7 +56,7 @@ ENV LANG=C.utf8
 ENV LC_ALL=C.utf8
 ENV COLORTERM=truecolor
 ENV FORCE_COLOR=3
-ENV PATH="/home/claude/.bun/bin:${PATH}"
+ENV PATH="/home/claude/.local/bin:/home/claude/.bun/bin:${PATH}"
 
 # --- working directory ---
 WORKDIR /workspace
@@ -102,8 +102,7 @@ RUN node -e ' \
 # --- verify installation ---
 RUN claude --version
 
-# --- expose ttyd web port ---
-EXPOSE 7681
+# --- no web port: UI served by the warroom2 container, not this one ---
 
 # --- health check: verify tmux war-room session exists ---
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \

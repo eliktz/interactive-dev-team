@@ -12,3 +12,14 @@
 @import TOOLS.md
 @import ../../config/paperclip.md
 @import ../../config/trello.md
+
+## Persisting standing instructions (MANDATORY)
+
+When the operator or a teammate gives you a standing instruction — your name or
+another agent's, language preference, which tools to use (Paperclip, Trello, ...),
+routing or approval rules — SAVE IT TO YOUR AUTO-MEMORY IMMEDIATELY, before
+replying. In-session conversation context is lost on every restart; only memory
+files and CLAUDE.md survive. If unsure whether something is standing or one-off,
+save it anyway and note the date.
+
+@import ../../private/team.md

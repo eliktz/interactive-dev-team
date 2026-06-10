@@ -22,13 +22,6 @@ You have access to these MCP tools — use them proactively:
 ### Paperclip (Agent Management)
 - **See:** `@import ../../config/paperclip.md` for full API details
 
-### Deploy to Production
-- **Script:** `/workspace/scripts/deploy-gonorth.sh`
-- **What it does:** Pushes Go-North to Bitbucket (Plesk auto-file-sync) → SSHes to `deploy-plesk` → runs `npm install + next build + Passenger restart` → verifies site returns HTTP 200
-- **Usage:** `cd /workspace/project && /workspace/scripts/deploy-gonorth.sh`
-- **Output:** Logs, final line is `Deployed URL: https://gonorth.tlk.solutions`
-- **When to use:** After QA approval, to push changes live and report the URL
-
 ## Project Context
 
 ### Stack
@@ -39,7 +32,7 @@ You have access to these MCP tools — use them proactively:
 | Styling | Tailwind CSS v4 |
 | Backend | Supabase (auth, DB, storage) |
 | AI | OpenAI AI SDK |
-| Deployment | Plesk (Phusion Passenger + Next.js, SSH deploy via `gonorthdev@34.165.203.65` running `./deploy.sh`) |
+| Deployment | Vercel (auto-deploy from branches) |
 | Package Manager | pnpm |
 | Node | >= 22 |
 

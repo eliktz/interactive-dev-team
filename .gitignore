@@ -10,3 +10,14 @@ Dockerfile.ttyd-spike
 test-ttyd.sh
 entrypoint.sh
 .DS_Store
+
+# Private operator/team config — lives only on the VM + private remote, NEVER in this public repo
+private/
+
+# Generated at container boot by launch.sh — never commit
+agents/*/start.sh
+agents/*/.claude/
+
+# Wizard-generated timestamped backups + crash-orphaned temp files (may contain .env secrets)
+*.bak-*
+*.tmp-*

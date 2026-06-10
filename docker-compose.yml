@@ -2,7 +2,7 @@
 # docker-compose.yml — AI Agent War Room + Paperclip Control Plane
 #
 # Services:
-#   war-room  — 3 Claude Code agents in tmux + ttyd web terminal
+#   war-room  — 3 Claude Code agents in tmux (UI served by warroom2)
 #   paperclip — Paperclip control plane (worker management + web UI)
 #
 # Paperclip source:
@@ -20,8 +20,10 @@
 services:
   war-room:
     build: .
-    ports:
-      - "${TTYD_PORT:-7681}:7681"
+    # No published ports: the legacy ttyd web terminal (:7681) was retired
+    # 2026-06-10 in favor of war-room 2.0 (warroom2 container). The UI reaches
+    # this container's tmux session over the Docker network via docker exec,
+    # not an exposed port. Break-glass: `docker exec <war-room> tmux attach`.
     environment:
       # LLM Provider — claude.ai OAuth is used for Telegram channels.
       # Do NOT set ANTHROPIC_API_KEY here; it conflicts with the OAuth token.
@@ -42,9 +44,6 @@ services:
       CAPTAIN_MODEL: ${CAPTAIN_MODEL:-sonnet}
       CEO_MODEL: ${CEO_MODEL:-opus}
       UX_MODEL: ${UX_MODEL:-sonnet}
-      # ttyd auth
-      TTYD_USERNAME: ${TTYD_USERNAME:-}
-      TTYD_PASSWORD: ${TTYD_PASSWORD:-}
       # Project repo (cloned at startup, used for code + CLAUDE.md overrides)
       GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
       # Bitbucket Cloud (token OR username/password)
@@ -62,6 +61,13 @@ services:
       - war-room-state:/home/claude/.claude
       # Shared project repo — same volume as Paperclip container
       - project-repo:/workspace/project
+      # Roster + personas bind-mounted (NOT baked) so the warroom2 admin wizard
+      # can mount a new agent and have it appear on the next war-room restart
+      # WITHOUT an image rebuild. The image still COPYs these as a fallback for
+      # `docker run` without compose. launch.sh writes generated start.sh +
+      # per-agent .claude/ here (both gitignored).
+      - ./agents:/workspace/agents
+      - ./config:/workspace/config
       # SSH key for deploying to Plesk (optional, mount if available)
       - ${DEPLOY_SSH_KEY_PATH:-/dev/null}:/home/claude/.ssh/deploy_key:ro
     depends_on:
@@ -135,7 +141,45 @@ services:
       - "8931:8931"
     restart: unless-stopped
 
+  warroom2:
+    build: ./warroom2
+    container_name: interactive-dev-team-warroom2-1
+    ports:
+      - "${WARROOM2_PORT:-7682}:8080"
+    environment:
+      WARROOM2_BASIC_AUTH_USER: ${WARROOM2_BASIC_AUTH_USER:-}
+      WARROOM2_BASIC_AUTH_PASS: ${WARROOM2_BASIC_AUTH_PASS:-}
+      WARROOM2_BUS_PATH: /workspace/agent-bus/messages.ndjson
+      WARROOM2_WARROOM_CONTAINER: interactive-dev-team-war-room-1
+      WARROOM2_OPENCLAW_CONTAINER: interactive-dev-team-openclaw-1
+      WARROOM2_TMUX_SESSION: war-room
+      WARROOM2_STATE_DB: /var/lib/warroom2/state.db
+      # Admin wizard: token required to invoke /api/admin/wizard/*.
+      # Leave empty to disable the wizard (endpoints return 503).
+      WARROOM2_ADMIN_TOKEN: ${WARROOM2_ADMIN_TOKEN:-}
+      WARROOM2_REPO_ROOT: /workspace/interactive-dev-team
+      # Pass through operator id as default for wizard step 2.
+      OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
+    volumes:
+      # Read-only docker socket so warroom2 can `docker exec` into war-room + openclaw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Shared bus journal (war-room VM host path → container)
+      - /var/lib/warroom-bus:/workspace/agent-bus
+      # Read-only persona/project access
+      - ./agents:/workspace/agents:ro
+      - project-repo:/workspace/project:ro
+      # Persistent state (scrollback cache, SQLite)
+      - warroom2-state:/var/lib/warroom2
+      # RW bind for the admin wizard: lets the wizard mutate launch.sh,
+      # .env, and agents/* on the host. ONLY mounted into warroom2.
+      - /home/ravi/interactive-dev-team:/workspace/interactive-dev-team:rw
+    depends_on:
+      war-room:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   war-room-state:
   paperclip-data:
   project-repo:
+  warroom2-state:
