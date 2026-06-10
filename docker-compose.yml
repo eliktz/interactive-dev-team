@@ -61,6 +61,13 @@ services:
       - war-room-state:/home/claude/.claude
       # Shared project repo — same volume as Paperclip container
       - project-repo:/workspace/project
+      # Roster + personas bind-mounted (NOT baked) so the warroom2 admin wizard
+      # can mount a new agent and have it appear on the next war-room restart
+      # WITHOUT an image rebuild. The image still COPYs these as a fallback for
+      # `docker run` without compose. launch.sh writes generated start.sh +
+      # per-agent .claude/ here (both gitignored).
+      - ./agents:/workspace/agents
+      - ./config:/workspace/config
       # SSH key for deploying to Plesk (optional, mount if available)
       - ${DEPLOY_SSH_KEY_PATH:-/dev/null}:/home/claude/.ssh/deploy_key:ro
     depends_on:
