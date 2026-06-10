@@ -28,17 +28,23 @@ RUN ARCH=$(dpkg --print-architecture) && \
       -o /usr/local/bin/ttyd && \
     chmod +x /usr/local/bin/ttyd
 
-# --- install Claude Code CLI globally ---
-RUN npm install -g @anthropic-ai/claude-code@latest
-
 # --- create non-root user ---
 # CRITICAL: Claude Code refuses --dangerously-skip-permissions when running as root
 RUN useradd -m -s /bin/bash claude
 
-# --- install Bun (required by Telegram plugin for grammy) ---
+# --- install Bun (required by Telegram plugin for grammy) + Claude Code CLI ---
+# Claude Code uses the native installer AS THE claude USER (~/.local/share/claude)
+# so the auto-updater can write to its own install. A root-owned npm -g install
+# pins the version forever: auto-update fails with EACCES for uid 1001 and the
+# container silently falls behind (observed stuck at 2.1.112 while Fable 5
+# required 2.1.170+).
 USER claude
 RUN curl -fsSL https://bun.sh/install | bash
+RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
+
+# Keep `claude` resolvable from the original PATH (tmux server env, scripts)
+RUN ln -sfn /home/claude/.local/bin/claude /usr/local/bin/claude
 
 # --- pre-create state directories ---
 RUN mkdir -p /home/claude/.claude/channels/telegram/inbox \
@@ -56,7 +62,7 @@ ENV LANG=C.utf8
 ENV LC_ALL=C.utf8
 ENV COLORTERM=truecolor
 ENV FORCE_COLOR=3
-ENV PATH="/home/claude/.bun/bin:${PATH}"
+ENV PATH="/home/claude/.local/bin:/home/claude/.bun/bin:${PATH}"
 
 # --- working directory ---
 WORKDIR /workspace
