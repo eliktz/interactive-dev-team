@@ -37,7 +37,7 @@ interface BusMessage {
 
 This is exactly the `interface BusMessage` declared at `plugins/agent-bus-marketplace/agent-bus/server.ts:107-117`.
 
-### 2.1 Live example (from `/var/lib/warroom-bus/messages.ndjson`)
+### 2.1 Illustrative example (generic agent-bus row)
 
 ```json
 {"id":"01KQSW60811YYPF5H8GJ9EJD1T","ts":"2026-05-04T16:12:16.513Z","from":"iris","to":"yefet","reply_to":null,"subject":"v0.2 deploy link","body":"...","hop_count":0,"chain_id":"01KQSW607Y1MVX0E6HF4DBJTAE"}
@@ -163,7 +163,7 @@ Trip rules:
 
 Transport row in `messages.ndjson`:
 ```json
-{"id":"01KRCM2P5N1XYHFT9G3VB6KQDC","ts":"2026-05-12T09:14:22.103Z","from":"yefet","to":"captain","reply_to":null,"subject":"GON-127: add settlement-card RTL caret","body":"<json below>","hop_count":0,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
+{"id":"01KRCM2P5N1XYHFT9G3VB6KQDC","ts":"2026-05-12T09:14:22.103Z","from":"yefet","to":"captain","reply_to":null,"subject":"TICKET-42: add card RTL caret","body":"<json below>","hop_count":0,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
 ```
 
 `body` (squad envelope):
@@ -177,10 +177,10 @@ Transport row in `messages.ndjson`:
   "hop_count": 0,
   "reply_to": null,
   "type": "task_brief",
-  "subject": "GON-127: add settlement-card RTL caret",
-  "body": "Frontend: SettlementSwipe.tsx currently shows a stray LTR caret on Hebrew rows. Acceptance: RTL caret + functional tests + visual diff against /workspace/agents/ux-gonorth/mockups/gon127-rtl-caret.png. Branch: gon-127. Out of scope: backend.",
+  "subject": "TICKET-42: add card RTL caret",
+  "body": "Frontend: GenericCard.tsx currently shows a stray LTR caret on Hebrew rows. Acceptance: RTL caret + functional tests + visual diff against /workspace/agents/ux-gonorth/mockups/ticket42-rtl-caret.png. Branch: ticket-42. Out of scope: backend.",
   "attachments": [
-    { "kind": "file", "path": "/workspace/agents/ux-gonorth/mockups/gon127-rtl-caret.png", "mime": "image/png" }
+    { "kind": "file", "path": "/workspace/agents/ux-gonorth/mockups/ticket42-rtl-caret.png", "mime": "image/png" }
   ]
 }
 ```
@@ -189,7 +189,7 @@ Transport row in `messages.ndjson`:
 
 Transport row:
 ```json
-{"id":"01KRCM6KZB8X1V4S0J5N7HRWDQ","ts":"2026-05-12T09:31:08.442Z","from":"qa","to":"captain","reply_to":"01KRCM5XYZ...","subject":"GON-127 qa:visual FAIL ssim=0.943","body":"<json below>","hop_count":3,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
+{"id":"01KRCM6KZB8X1V4S0J5N7HRWDQ","ts":"2026-05-12T09:31:08.442Z","from":"qa","to":"captain","reply_to":"01KRCM5XYZ...","subject":"TICKET-42 qa:visual FAIL ssim=0.943","body":"<json below>","hop_count":3,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
 ```
 
 `body`:
@@ -203,13 +203,13 @@ Transport row:
   "hop_count": 3,
   "reply_to": "01KRCM5XYZ...",
   "type": "qa_verdict",
-  "subject": "GON-127 qa:visual FAIL ssim=0.943",
+  "subject": "TICKET-42 qa:visual FAIL ssim=0.943",
   "body": "Visual diff exceeds threshold (ssim 0.943 < 0.97). Caret position 12px off in RTL. Diff attached.",
   "verdict": "fail",
   "ssim": 0.943,
-  "screenshot_diff": "/workspace/agents/qa/runs/gon-127/diff.png",
+  "screenshot_diff": "/workspace/agents/qa/runs/ticket-42/diff.png",
   "evidence": {
-    "logs": ["/workspace/agents/qa/runs/gon-127/qa-visual.log"],
+    "logs": ["/workspace/agents/qa/runs/ticket-42/qa-visual.log"],
     "tests": ["qa:visual:settlement-swipe-rtl"],
     "commit_sha": "a3f9c12"
   }
@@ -220,7 +220,7 @@ Transport row:
 
 Transport row:
 ```json
-{"id":"01KRCMK4WGAR3T8Z5X9YPN1EHV","ts":"2026-05-12T09:42:55.001Z","from":"captain","to":"yefet","reply_to":"01KRCM2P5N1XYHFT9G3VB6KQDC","subject":"GON-127 babysitter.gate PASS","body":"<json below>","hop_count":1,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
+{"id":"01KRCMK4WGAR3T8Z5X9YPN1EHV","ts":"2026-05-12T09:42:55.001Z","from":"captain","to":"yefet","reply_to":"01KRCM2P5N1XYHFT9G3VB6KQDC","subject":"TICKET-42 babysitter.gate PASS","body":"<json below>","hop_count":1,"chain_id":"01KRCM2P5N1XYHFT9G3VB6KQDC"}
 ```
 
 `body`:
@@ -234,10 +234,10 @@ Transport row:
   "hop_count": 1,
   "reply_to": "01KRCM2P5N1XYHFT9G3VB6KQDC",
   "type": "babysitter.gate",
-  "subject": "GON-127 babysitter.gate PASS",
+  "subject": "TICKET-42 babysitter.gate PASS",
   "verdict": "pass",
   "evidence": {
-    "logs": ["babysitter:frontend-dev-gon-127", "/workspace/agents/.a5c/runs/gon-127/journal.ndjson"],
+    "logs": ["babysitter:frontend-dev-ticket-42", "/workspace/agents/.a5c/runs/ticket-42/journal.ndjson"],
     "tests": ["lint", "build", "qa:functional", "qa:visual", "qa:quality"],
     "commit_sha": "a3f9c12e5d1b"
   }
@@ -260,6 +260,6 @@ When you author an agent prompt (`.claude/agents/*.md`) that must return an enve
 ## 10. References
 
 - Transport implementation + validation: `plugins/agent-bus-marketplace/agent-bus/server.ts`
-- Bus live state: `/var/lib/warroom-bus/messages.ndjson`, `/var/lib/warroom-bus/trips.ndjson` (on the Go-North VM)
+- Bus live state: `${AGENT_BUS_DIR}/messages.ndjson`, `${AGENT_BUS_DIR}/trips.ndjson` (host-specific path; see deployment config)
 - Spec sources: `.a5c/processes/warroom-bus-bridge-paperclip-plan-output/FINAL-PLAN.md` (Plan-B Phase 1 Deliverable 8, plus §§2-6, 10 of `phase2-improved-plan.md`)
 - Deviations: `PLAN-A-MV-DONE-EVIDENCE.md` §4 (Telegram BLOCKED coverage gap)

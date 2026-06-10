@@ -17,3 +17,7 @@ private/
 # Generated at container boot by launch.sh — never commit
 agents/*/start.sh
 agents/*/.claude/
+
+# Wizard-generated timestamped backups + crash-orphaned temp files (may contain .env secrets)
+*.bak-*
+*.tmp-*
