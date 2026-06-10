@@ -10,3 +10,6 @@ Dockerfile.ttyd-spike
 test-ttyd.sh
 entrypoint.sh
 .DS_Store
+
+# Private operator/team config — lives only on the VM + private remote, NEVER in this public repo
+private/

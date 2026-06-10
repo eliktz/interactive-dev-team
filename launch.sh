@@ -337,10 +337,23 @@ if [ -n "\$EXISTING" ] && [ "\$EXISTING" != "\$\$" ]; then
 fi
 cd "\$AGENT_DIR"
 export TELEGRAM_STATE_DIR=${state_dir}
+# Resume the previous conversation on restart so operator instructions given
+# in-session survive respawns/crashes (transcripts persist in the war-room-state
+# volume). Self-healing: if claude exits within 15s (nothing to continue, or a
+# poisoned session crash-looping), drop --continue and start fresh next round.
+RESUME="--continue"
 while true; do
-  echo "[${name}] Starting Claude Code (model: ${model})..."
-  claude --dangerously-skip-permissions --model ${model} --channels plugin:telegram@claude-plugins-official
+  echo "[${name}] Starting Claude Code (model: ${model})\${RESUME:+ [resuming previous session]}..."
+  START_TS=\$(date +%s)
+  claude \$RESUME --dangerously-skip-permissions --model ${model} --channels plugin:telegram@claude-plugins-official
   EXIT_CODE=\$?
+  RAN_FOR=\$(( \$(date +%s) - START_TS ))
+  if [ "\$RAN_FOR" -lt 15 ]; then
+    echo "[${name}] exited after \${RAN_FOR}s (code \$EXIT_CODE) — will start FRESH next round"
+    RESUME=""
+  else
+    RESUME="--continue"
+  fi
   echo "[${name}] Claude Code exited (code \$EXIT_CODE). Restarting in 5s... (Ctrl+C to stop)"
   sleep 5
 done
