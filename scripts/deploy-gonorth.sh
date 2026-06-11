@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy-gonorth.sh — Deploy Go-North to Plesk production
+# deploy-gonorth.sh — Deploy the squad's project repo to Plesk production
+#
+# (File name kept for compatibility with existing agent instructions; the
+# deploy target itself is fully env-driven — nothing Go-North-specific left.)
 #
 # Runs from inside the war-room container (or any machine with SSH access to
-# deploy-plesk). Pushes to Bitbucket (for auto-deploy file sync), then SSHes
-# to Plesk and runs npm install + build + Passenger restart.
+# the deploy host). Pushes to Bitbucket (for auto-deploy file sync), then
+# SSHes to Plesk and runs npm install + build + Passenger restart.
 #
 # Usage:
-#   ./deploy-gonorth.sh
+#   ./deploy-gonorth.sh [project-dir]
 #
 # Requirements:
-#   - SSH config with Host deploy-plesk (configured by launch.sh when
-#     DEPLOY_SSH_KEY_PATH is set)
-#   - Current working directory is inside /workspace/project (Go-North repo)
+#   - SSH config with Host deploy-plesk (written by launch.sh when the deploy
+#     key is mounted AND DEPLOY_SSH_HOST/DEPLOY_SSH_USER are set)
+#   - REMOTE_ROOT (or DEPLOY_REMOTE_ROOT): Plesk vhost docroot, e.g.
+#     /var/www/vhosts/<site>/httpdocs
+#   - SITE_URL (or DEPLOY_SITE_URL): public URL used for the post-deploy check
+#   - Current working directory is inside /workspace/project (project repo)
 #     — or pass the project path as first arg
 #
 # Output:
@@ -24,10 +30,18 @@ set -euo pipefail
 
 PROJECT_DIR="${1:-/workspace/project}"
 DEPLOY_HOST="${DEPLOY_HOST:-deploy-plesk}"
-REMOTE_ROOT="${REMOTE_ROOT:-/var/www/vhosts/gonorth.tlk.solutions/httpdocs}"
-SITE_URL="${SITE_URL:-https://gonorth.tlk.solutions}"
+REMOTE_ROOT="${REMOTE_ROOT:-${DEPLOY_REMOTE_ROOT:-}}"
+SITE_URL="${SITE_URL:-${DEPLOY_SITE_URL:-}}"
 
 log() { echo "[deploy] $*"; }
+
+# --- Step 0: Verify the deploy target is configured (env-driven, fail loud) ---
+if [ -z "$REMOTE_ROOT" ] || [ -z "$SITE_URL" ]; then
+  echo "ERROR: deploy target not configured." >&2
+  echo "  Set REMOTE_ROOT (or DEPLOY_REMOTE_ROOT) and SITE_URL (or DEPLOY_SITE_URL)" >&2
+  echo "  in the squad .env (see deploy/templates/squad.env.template)." >&2
+  exit 1
+fi
 
 # --- Step 1: Verify local state ---
 log "Checking project at $PROJECT_DIR..."

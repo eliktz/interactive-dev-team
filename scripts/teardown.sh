@@ -151,5 +151,5 @@ else
   echo "  Environment files:     ${YELLOW}kept${RESET}"
 fi
 echo
-echo "  To start fresh, run: ${BOLD}scripts/setup.sh${RESET}"
+echo "  To start fresh, run: ${BOLD}docker compose up -d${RESET} then ${BOLD}scripts/setup-company.sh${RESET}"
 echo

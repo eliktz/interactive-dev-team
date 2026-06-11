@@ -9,8 +9,10 @@ set -euo pipefail
 # is served by the warroom2 container (PTY-attach over WebSocket); this
 # container only runs tmux.
 #
-# If agents.json is missing or fails to parse, we fall back to the legacy
-# hardcoded 3-agent roster so the container STILL BOOTS (this script is PID 1).
+# If agents.json is missing or fails to parse, NO agents are launched: the
+# container boots a single tmux window that displays the roster error (fail
+# loud) and STAYS UP (this script is PID 1) so the operator can see why and
+# fix the squad's config/agents.json, then recreate the container.
 # =============================================================================
 
 SESSION="war-room"
@@ -45,7 +47,8 @@ fi
 # LEGAL SHELL VARIABLE NAMES (^[A-Z][A-Z0-9_]*$) when non-empty — bash 5.2
 # ABORTS this PID-1 script on `${!name}` with an invalid name (macOS bash 3.2
 # tolerates it, so only the container is affected).
-# Any violation exits non-zero -> the hardcoded fallback roster below kicks in.
+# Any violation exits non-zero -> the fail-loud boot-error window below kicks
+# in (no agents are launched until the roster is fixed).
 ROSTER_PARSER='try{const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(j.version!==1)throw new Error("unsupported agents.json version: "+JSON.stringify(j.version));const t=(j.agents||[]).filter(a=>a&&a.attach==="tmux").sort((a,b)=>a.window-b.window);if(t.length===0)throw new Error("no attach=tmux agents in roster");const ids=new Set();const wins=new Set();for(const a of t){for(const k of ["id","persona_dir","window","label","model_default"]){if(a[k]===undefined||a[k]===null||a[k]==="")throw new Error("tmux agent "+(a.id||"<?>")+" missing required field "+k)}if(!/^[a-z][a-z0-9-]{2,30}$/.test(a.id))throw new Error("invalid agent id: "+a.id);if(!Number.isInteger(a.window)||a.window<1)throw new Error("invalid window for agent "+a.id);if(typeof a.persona_dir!=="string"||!/^[a-z][a-z0-9._-]+$/.test(a.persona_dir))throw new Error("invalid persona_dir for agent "+a.id);if(a.model_env!==undefined&&a.model_env!==null&&a.model_env!==""&&!/^[A-Z][A-Z0-9_]*$/.test(String(a.model_env)))throw new Error("invalid model_env (not a legal shell variable name) for agent "+a.id);if(a.token_env!==undefined&&a.token_env!==null&&a.token_env!==""&&!/^[A-Z][A-Z0-9_]*$/.test(String(a.token_env)))throw new Error("invalid token_env (not a legal shell variable name) for agent "+a.id);if(ids.has(a.id))throw new Error("duplicate agent id: "+a.id);if(wins.has(a.window))throw new Error("duplicate window index: "+a.window);ids.add(a.id);wins.add(a.window);const f=[a.id,a.persona_dir,a.window,a.label,a.model_env||"",a.model_default,a.token_env||""].map(String);if(f.some(v=>v.includes("|")||v.includes("\n")))throw new Error("field contains | or newline on agent "+a.id);console.log(f.join("|"))}}catch(e){console.error("agents.json: "+(e&&e.message?e.message:String(e)));process.exit(1)}'
 
 AGENT_IDS=()
@@ -75,21 +78,20 @@ else
   ROSTER_OUTPUT="file not found: $AGENTS_JSON"
 fi
 
+# FAIL LOUD on a bad roster: no hardcoded fallback agents. The container
+# still boots (PID 1 must not exit) into a single error window — see the
+# tmux session creation below — so the operator can see what broke.
+ROSTER_FAILED=0
 if [ "${#AGENT_IDS[@]}" -eq 0 ]; then
-  ROSTER_SOURCE="hardcoded-fallback"
+  ROSTER_FAILED=1
+  ROSTER_SOURCE="none-roster-error"
   echo "[war-room] =================================================================="
   echo "[war-room] ERROR: failed to load agent roster from $AGENTS_JSON"
   echo "[war-room]   $ROSTER_OUTPUT"
-  echo "[war-room] Falling back to the legacy hardcoded 3-agent roster so the"
-  echo "[war-room] container still boots. FIX config/agents.json!"
+  echo "[war-room] NO agents will be started. The container stays up with an error"
+  echo "[war-room] window so this is visible. Fix config/agents.json in the squad"
+  echo "[war-room] instance dir, then recreate this container."
   echo "[war-room] =================================================================="
-  AGENT_IDS=("captain" "ceo-gonorth" "ux-gonorth")
-  AGENT_DIRS=("captain" "ceo-gonorth" "ux-gonorth")
-  AGENT_WINDOWS=(1 2 3)
-  AGENT_LABEL_BASES=("Captain" "CEO Yefet" "UX Hedva")
-  AGENT_MODEL_ENVS=("CAPTAIN_MODEL" "CEO_MODEL" "UX_MODEL")
-  AGENT_MODEL_DEFAULTS=("sonnet" "opus" "sonnet")
-  AGENT_TOKEN_ENVS=("CAPTAIN_TELEGRAM_TOKEN" "CEO_GONORTH_TELEGRAM_TOKEN" "UX_GONORTH_TELEGRAM_TOKEN")
 fi
 
 # --- Belt-and-braces guard for the ${!var} indirections below ---
@@ -165,18 +167,18 @@ for i in "${!AGENT_IDS[@]}"; do
   fi
 done
 
-echo "[war-room] Agent roster ($ROSTER_SOURCE): ${AGENT_IDS[*]}"
+echo "[war-room] Agent roster ($ROSTER_SOURCE): ${AGENT_IDS[*]:-<none>}"
 echo "[war-room] Claude Code version: $(claude --version)"
 echo "[war-room] Bun version: $(bun --version)"
 echo "[war-room] Running as: $(whoami) (uid=$(id -u))"
 
-# --- Clone project repo (Go-North) ---
+# --- Clone the squad's project repo ---
 PROJECT_DIR="/workspace/project"
 # Allow any user to use this repo (important when shared volume is root-owned)
 git config --global --add safe.directory "$PROJECT_DIR" 2>/dev/null || true
 git config --global --add safe.directory "*" 2>/dev/null || true
 
-if [ -n "${GONORTH_REPO_URL:-}" ]; then
+if [ -n "${PROJECT_REPO_URL:-}" ]; then
   if [ -d "$PROJECT_DIR/.git" ]; then
     echo "[war-room] Project repo already cloned, pulling latest..."
     cd "$PROJECT_DIR" && git pull --ff-only 2>&1 || echo "[war-room] WARNING: git pull failed (non-fatal)"
@@ -184,7 +186,7 @@ if [ -n "${GONORTH_REPO_URL:-}" ]; then
   else
     echo "[war-room] Cloning project repo..."
     # Build clone URL with token auth if BITBUCKET_TOKEN is set
-    CLONE_URL="$GONORTH_REPO_URL"
+    CLONE_URL="$PROJECT_REPO_URL"
     if [ -n "${BITBUCKET_TOKEN:-}" ] && echo "$CLONE_URL" | grep -q "bitbucket.org"; then
       CLONE_URL=$(echo "$CLONE_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
     fi
@@ -202,25 +204,40 @@ if [ -n "${GONORTH_REPO_URL:-}" ]; then
     fi
   fi
 
-  # Configure git user for commits
+  # Configure git user for commits (env-driven, neutral defaults)
   if [ -d "$PROJECT_DIR/.git" ]; then
     cd "$PROJECT_DIR"
-    git config user.email "war-room@gonorth.ai"
-    git config user.name "War Room Agent"
+    git config user.email "${GIT_IDENTITY_EMAIL:-war-room@squad.localhost}"
+    git config user.name "${GIT_IDENTITY_NAME:-War Room Agent}"
     # Set push URL with token so agents can push
-    if [ -n "${BITBUCKET_TOKEN:-}" ] && echo "$GONORTH_REPO_URL" | grep -q "bitbucket.org"; then
-      PUSH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
+    if [ -n "${BITBUCKET_TOKEN:-}" ] && echo "$PROJECT_REPO_URL" | grep -q "bitbucket.org"; then
+      PUSH_URL=$(echo "$PROJECT_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
       git remote set-url origin "$PUSH_URL"
     fi
     cd /workspace
     echo "[war-room] Project repo ready at $PROJECT_DIR"
   fi
 else
-  echo "[war-room] GONORTH_REPO_URL not set — skipping project repo clone"
+  echo "[war-room] PROJECT_REPO_URL not set — skipping project repo clone"
 fi
 export PROJECT_DIR
 
+# --- Install the secret-scan pre-push hook into the project clone ---
+# Defense-in-depth for the one git remote agents CAN push to: generic secret
+# patterns are rejected before they leave the container. The hook script ships
+# with the platform (M5); guard on existence so boot works either way.
+HOOK_SRC="/workspace/scripts/secret-scan-pre-push.sh"
+if [ -d "$PROJECT_DIR/.git" ] && [ -f "$HOOK_SRC" ]; then
+  mkdir -p "$PROJECT_DIR/.git/hooks"
+  cp "$HOOK_SRC" "$PROJECT_DIR/.git/hooks/pre-push"
+  chmod +x "$PROJECT_DIR/.git/hooks/pre-push"
+  echo "[war-room] secret-scan pre-push hook installed into project clone"
+fi
+
 # --- Configure SSH deploy key (if mounted) ---
+# The deploy target is env-driven (DEPLOY_SSH_HOST + DEPLOY_SSH_USER in the
+# squad .env); the Host block is only written when BOTH are set, so squads
+# without a deploy target never get a dangling SSH config entry.
 DEPLOY_KEY="$HOME/.ssh/deploy_key"
 if [ -f "$DEPLOY_KEY" ] && [ -s "$DEPLOY_KEY" ]; then
   # Dockerfile pre-creates /home/claude/.ssh owned by claude. If Docker's mount
@@ -229,18 +246,22 @@ if [ -f "$DEPLOY_KEY" ] && [ -s "$DEPLOY_KEY" ]; then
   chmod 700 "$HOME/.ssh" 2>/dev/null || true
   # The deploy_key is bind-mounted :ro so chmod is a no-op / may fail — that's fine
   chmod 600 "$DEPLOY_KEY" 2>/dev/null || true
-  # Create SSH config for the deploy host
-  cat > "$HOME/.ssh/config" << SSHEOF
+  if [ -n "${DEPLOY_SSH_HOST:-}" ] && [ -n "${DEPLOY_SSH_USER:-}" ]; then
+    # Create SSH config for the deploy host (alias used by the deploy script)
+    cat > "$HOME/.ssh/config" << SSHEOF
 Host deploy-plesk
-  HostName 34.165.203.65
-  User gonorthdev
+  HostName ${DEPLOY_SSH_HOST}
+  User ${DEPLOY_SSH_USER}
   IdentityFile $DEPLOY_KEY
   StrictHostKeyChecking no
 SSHEOF
-  chmod 600 "$HOME/.ssh/config"
-  echo "[war-room] SSH deploy key configured"
+    chmod 600 "$HOME/.ssh/config"
+    echo "[war-room] SSH deploy key + deploy-plesk host configured (${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST})"
+  else
+    echo "[war-room] Deploy key mounted but DEPLOY_SSH_HOST/DEPLOY_SSH_USER not set — skipping SSH config block"
+  fi
 else
-  echo "[war-room] No SSH deploy key found — deploy to Plesk not available"
+  echo "[war-room] No SSH deploy key found — SSH deploy not available"
 fi
 
 # --- Override agent files from project repo ---
@@ -297,7 +318,8 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
 fi
 
 # --- Pre-trust every agent's project dir (dynamic, from the roster) ---
-# The Dockerfile seeds trust only for the legacy 3 dirs; a wizard-added agent
+# The Dockerfile seeds trust only for the generic paths (/workspace,
+# /workspace/project, the captain seed persona); a wizard-added agent
 # would otherwise hit the trust dialog on first boot and hang the pane (the
 # --dangerously-skip-permissions flag does NOT skip the workspace-trust
 # dialog). Merge a trusted projects[] entry for /workspace, /workspace/project,
@@ -420,8 +442,8 @@ fi
 # --- Set up Telegram state dirs and .env files for each agent ---
 # Only agents that DECLARE a token_env in agents.json get Telegram state;
 # CLI-only agents (no token_env) skip this block entirely.
-# State dirs are keyed on persona_dir (NOT agent id) to preserve the live
-# telegram-captain / telegram-ceo-gonorth / telegram-ux-gonorth state dirs.
+# State dirs are keyed on persona_dir (NOT agent id) so existing
+# telegram-<persona_dir> state dirs survive roster edits that rename ids.
 for i in "${!AGENT_IDS[@]}"; do
   id="${AGENT_IDS[$i]}"
   dir="${AGENT_DIRS[$i]}"
@@ -437,19 +459,27 @@ for i in "${!AGENT_IDS[@]}"; do
     echo "[war-room] [$id] Telegram token written to $state_dir/.env"
   fi
 
-  # Create access.json if missing (whitelists the group and operator for Telegram)
-  if [ ! -f "$state_dir/access.json" ] && [ -n "${GONORTH_GROUP_ID:-}" ]; then
-    # All agents see all messages (bot-to-bot @mentions don't work on Telegram,
-    # so agents must read all messages and decide whether to respond based on
-    # their CLAUDE.md instructions)
-    require_mention="false"
+  # Create access.json if missing (whitelists the group and operator for
+  # Telegram). ALWAYS created — when SQUAD_TELEGRAM_GROUP_ID is empty at boot
+  # a minimal operator-DM-only file is written instead of skipping creation,
+  # so filling the var later activates group routing with a plain
+  # `squadctl apply <slug> war-room` (no hidden never-activates state).
+  if [ ! -f "$state_dir/access.json" ]; then
+    if [ -n "${SQUAD_TELEGRAM_GROUP_ID:-}" ]; then
+      # All agents see all messages (bot-to-bot @mentions don't work on
+      # Telegram, so agents must read all messages and decide whether to
+      # respond based on their CLAUDE.md instructions)
+      require_mention="false"
+      # Normalize the chat id: Telegram supergroup ids are negative; accept
+      # the value with or without the leading "-" in the squad .env.
+      group_chat_id="-${SQUAD_TELEGRAM_GROUP_ID#-}"
 
-    cat > "$state_dir/access.json" << ACCESSEOF
+      cat > "$state_dir/access.json" << ACCESSEOF
 {
   "dmPolicy": "allowlist",
   "allowFrom": ["${OPERATOR_TELEGRAM_ID:-}"],
   "groups": {
-    "-${GONORTH_GROUP_ID}": {
+    "${group_chat_id}": {
       "requireMention": ${require_mention},
       "allowFrom": []
     }
@@ -457,7 +487,18 @@ for i in "${!AGENT_IDS[@]}"; do
   "pending": {}
 }
 ACCESSEOF
-    echo "[war-room] [$id] access.json created (requireMention: $require_mention)"
+      echo "[war-room] [$id] access.json created (requireMention: $require_mention)"
+    else
+      cat > "$state_dir/access.json" << ACCESSEOF
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["${OPERATOR_TELEGRAM_ID:-}"],
+  "groups": {},
+  "pending": {}
+}
+ACCESSEOF
+      echo "[war-room] [$id] access.json created (operator-DM-only — SQUAD_TELEGRAM_GROUP_ID empty; fill it and recreate to activate group routing)"
+    fi
   fi
 done
 
@@ -570,40 +611,76 @@ echo "[war-room] Creating tmux session '$SESSION'..."
 # straight from the agents.json "window" field (the wizard assigns max+1) and
 # each window's lone pane is at .1 — warroom2 targets war-room:<window>.
 NUM_AGENTS="${#AGENT_IDS[@]}"
-first_win="${AGENT_WINDOWS[0]}"
-tmux new-session -d -s "$SESSION" -x 200 -y 50 \
-  -n "${PANE_LABELS[0]}" \
-  "/workspace/agents/${AGENT_DIRS[0]}/start.sh"
-tmux set-option -t "$SESSION" remain-on-exit on
-# Window indices are OWNED by agents.json — do NOT renumber, trust the file.
-# tmux.conf sets renumber-windows on globally (legacy), which would shift
-# indices if a window is ever killed and silently break the warroom2
-# tmux_target mapping (war-room:<window>), so force it off for this session.
-tmux set-option -t "$SESSION" renumber-windows off
-# new-session always creates the first window at base-index 1; if the roster's
-# first agent lives at a different index, move it there.
-if [ "$first_win" != "1" ]; then
-  tmux move-window -s "$SESSION:1" -t "$SESSION:$first_win"
+if [ "$ROSTER_FAILED" -eq 1 ] || [ "$NUM_AGENTS" -eq 0 ]; then
+  # FAIL-LOUD BOOT: the roster is missing/invalid and NO agents launch.
+  # Boot a single tmux window that displays the error on a loop so the
+  # operator sees WHY through the dashboard / `tmux attach`. The session must
+  # exist (Dockerfile HEALTHCHECK + the keepalive loop below probe it) and
+  # this script must NOT exit — it is PID 1.
+  ERROR_FILE="/tmp/war-room-roster-error.txt"
+  ERROR_SCRIPT="/tmp/war-room-roster-error.sh"
+  {
+    echo "=================================================================="
+    echo " WAR-ROOM BOOT ERROR — agent roster failed to load"
+    echo "=================================================================="
+    echo
+    echo " roster file: $AGENTS_JSON"
+    echo " error:       $ROSTER_OUTPUT"
+    echo
+    echo " No agents were started. Fix config/agents.json in the squad"
+    echo " instance dir (\$SQUAD_HOME/config/agents.json), then recreate"
+    echo " this container (e.g. ./squadctl apply <slug> war-room)."
+    echo "=================================================================="
+  } > "$ERROR_FILE"
+  cat > "$ERROR_SCRIPT" << 'ERREOF'
+#!/usr/bin/env bash
+while true; do
+  clear
+  cat /tmp/war-room-roster-error.txt
+  sleep 30
+done
+ERREOF
+  chmod +x "$ERROR_SCRIPT"
+  tmux new-session -d -s "$SESSION" -x 200 -y 50 -n "ROSTER ERROR" "$ERROR_SCRIPT"
+  tmux set-option -t "$SESSION" remain-on-exit on
+  tmux set-option -t "$SESSION" renumber-windows off
+  echo "[war-room] tmux session '$SESSION' created with the roster-error window ONLY (no agents)"
+else
+  first_win="${AGENT_WINDOWS[0]}"
+  tmux new-session -d -s "$SESSION" -x 200 -y 50 \
+    -n "${PANE_LABELS[0]}" \
+    "/workspace/agents/${AGENT_DIRS[0]}/start.sh"
+  tmux set-option -t "$SESSION" remain-on-exit on
+  # Window indices are OWNED by agents.json — do NOT renumber, trust the file.
+  # tmux.conf sets renumber-windows on globally (legacy), which would shift
+  # indices if a window is ever killed and silently break the warroom2
+  # tmux_target mapping (war-room:<window>), so force it off for this session.
+  tmux set-option -t "$SESSION" renumber-windows off
+  # new-session always creates the first window at base-index 1; if the roster's
+  # first agent lives at a different index, move it there.
+  if [ "$first_win" != "1" ]; then
+    tmux move-window -s "$SESSION:1" -t "$SESSION:$first_win"
+  fi
+  tmux set-window-option -t "$SESSION:$first_win" aggressive-resize on
+
+  # Remaining agents each get their own window at their agents.json index
+  for (( i=1; i<NUM_AGENTS; i++ )); do
+    win="${AGENT_WINDOWS[$i]}"
+    tmux new-window -t "$SESSION:$win" -n "${PANE_LABELS[$i]}" \
+      "/workspace/agents/${AGENT_DIRS[$i]}/start.sh"
+    tmux set-window-option -t "$SESSION:$win" aggressive-resize on
+  done
+
+  # Pin pane titles (each window has one pane at pane-base-index 1)
+  for i in "${!AGENT_IDS[@]}"; do
+    tmux select-pane -t "$SESSION:${AGENT_WINDOWS[$i]}.1" -T "${PANE_LABELS[$i]}"
+  done
+
+  # Focus the first window (default attach target for `tmux attach`)
+  tmux select-window -t "$SESSION:$first_win"
+
+  echo "[war-room] tmux session '$SESSION' created with ${NUM_AGENTS} windows (one per agent, roster: $ROSTER_SOURCE)"
 fi
-tmux set-window-option -t "$SESSION:$first_win" aggressive-resize on
-
-# Remaining agents each get their own window at their agents.json index
-for (( i=1; i<NUM_AGENTS; i++ )); do
-  win="${AGENT_WINDOWS[$i]}"
-  tmux new-window -t "$SESSION:$win" -n "${PANE_LABELS[$i]}" \
-    "/workspace/agents/${AGENT_DIRS[$i]}/start.sh"
-  tmux set-window-option -t "$SESSION:$win" aggressive-resize on
-done
-
-# Pin pane titles (each window has one pane at pane-base-index 1)
-for i in "${!AGENT_IDS[@]}"; do
-  tmux select-pane -t "$SESSION:${AGENT_WINDOWS[$i]}.1" -T "${PANE_LABELS[$i]}"
-done
-
-# Focus the first window (default attach target for `tmux attach`)
-tmux select-window -t "$SESSION:$first_win"
-
-echo "[war-room] tmux session '$SESSION' created with ${NUM_AGENTS} windows (one per agent, roster: $ROSTER_SOURCE)"
 
 # NOTE: the legacy ttyd web terminal (:7681) was retired on 2026-06-10 in favor
 # of war-room 2.0 (the warroom2 container, PTY-attach over WebSocket). The UI is

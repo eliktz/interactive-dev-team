@@ -1,5 +1,6 @@
 # Production Dockerfile: AI agent war room
-# Single container running 3 Telegram-facing Claude Code agents in tmux.
+# Single container running the squad's Claude Code agents in tmux (one window
+# per agent, roster-driven from the squad's config/agents.json).
 # The browser UI is served separately by the warroom2 container (PTY-attach
 # over WebSocket); this container exposes no web port. (Legacy ttyd :7681
 # retired 2026-06-10.)
@@ -76,7 +77,9 @@ USER claude
 # --- pre-populate onboarding + trust state ---
 # Skips first-run wizard, workspace trust dialog, and pre-approves all tools
 # to prevent the Telegram plugin's permission relay from prompting the operator.
-# NOTE: Each agent path must be listed explicitly for allowedTools to take effect.
+# Only GENERIC paths are baked here (workspace, project clone, the captain
+# seed persona) — launch.sh pre-trusts every roster persona dir dynamically
+# at boot, so per-squad agents never need image changes.
 RUN node -e ' \
   const tools = [ \
     "mcp__plugin_telegram_telegram__reply", \
@@ -91,9 +94,7 @@ RUN node -e ' \
     projects: { \
       "/workspace": proj(), \
       "/workspace/project": proj(), \
-      "/workspace/agents/captain": proj(), \
-      "/workspace/agents/ceo-gonorth": proj(), \
-      "/workspace/agents/ux-gonorth": proj() \
+      "/workspace/agents/captain": proj() \
     } \
   }; \
   require("fs").writeFileSync("/home/claude/.claude.json", JSON.stringify(config)); \

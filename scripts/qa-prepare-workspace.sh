@@ -2,7 +2,7 @@
 # QA Lead workspace-prep helper — EPHEMERAL CLONE PATTERN.
 #
 # Context: the persistent QA workspace at
-#   /paperclip/instances/default/workspaces/<qa-agent-id>/go-north-app
+#   /paperclip/instances/default/workspaces/<qa-agent-id>/<workspace-name>
 # bleeds state across runs (modified files, wrong branch, .gitignored
 # artifacts, dangling local branches). Every state-bleed incident caused
 # QA to evaluate the WRONG tree and post a bogus REJECTED verdict.
@@ -22,7 +22,9 @@
 #   On failure: posts VERDICT: INFRA_BLOCKED to the Paperclip issue, prints nothing, exits 2.
 #
 # Env required:
-#   PAPERCLIP_API_KEY, PAPERCLIP_RUN_ID, BITBUCKET_TOKEN, GONORTH_REPO_URL
+#   PAPERCLIP_API_KEY, PAPERCLIP_RUN_ID, BITBUCKET_TOKEN, PROJECT_REPO_URL
+# Env optional:
+#   PROJECT_WORKSPACE_NAME — clone dir name (default: repo basename minus .git)
 
 set -u
 
@@ -38,7 +40,6 @@ mkdir -p "$BASE"
 find "$BASE" -mindepth 1 -maxdepth 1 -type d -mmin +120 -exec rm -rf {} + 2>/dev/null || true
 
 WS_PARENT="$BASE/$RUN_ID"
-WS="$WS_PARENT/go-north-app"
 
 post_infra_blocked() {
   local reason="$1"
@@ -65,11 +66,15 @@ VERDICT: INFRA_BLOCKED
 }
 
 # Build the authenticated clone URL
-if [ -z "${BITBUCKET_TOKEN:-}" ] || [ -z "${GONORTH_REPO_URL:-}" ]; then
-  post_infra_blocked "BITBUCKET_TOKEN or GONORTH_REPO_URL not set in env"
+if [ -z "${BITBUCKET_TOKEN:-}" ] || [ -z "${PROJECT_REPO_URL:-}" ]; then
+  post_infra_blocked "BITBUCKET_TOKEN or PROJECT_REPO_URL not set in env"
   exit 2
 fi
-AUTH_URL=$(echo "$GONORTH_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
+AUTH_URL=$(echo "$PROJECT_REPO_URL" | sed "s|https://|https://x-token-auth:${BITBUCKET_TOKEN}@|")
+
+# Clone dir name: explicit env wins, else the repo basename (minus .git)
+WORKSPACE_NAME="${PROJECT_WORKSPACE_NAME:-$(basename "${PROJECT_REPO_URL%/}" .git)}"
+WS="$WS_PARENT/$WORKSPACE_NAME"
 
 # Wipe any pre-existing dir for this run id (idempotent) and clone fresh
 rm -rf "$WS_PARENT"

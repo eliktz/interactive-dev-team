@@ -2,19 +2,45 @@
 set -euo pipefail
 
 # =============================================================================
-# health-check.sh -- Quick health check for all Interactive Dev Team services
+# health-check.sh -- Quick health check for one squad's services
 #
-# Checks: docker compose services, Paperclip API, war-room tmux, ttyd
+# Checks: docker compose services, Paperclip API, war-room tmux, dashboard.
 # Prints pass/fail per service with an overall status.
+#
+# Works for ANY compose project — everything is env-driven:
+#   COMPOSE_PROJECT_NAME   compose project to scope to (-p); default: the
+#                          repo-dir default project (legacy single-squad)
+#   SQUAD_ENV_FILE         squad .env passed to compose (--env-file)
+#   SQUAD_PAPERCLIP_PORT   host port of this squad's Paperclip (default 3100)
+#   SQUAD_DASH_PORT        host port of this squad's dashboard (default 7682)
+#   WAR_ROOM_SERVICE       compose service name of the agent container
+#                          (default war-room)
+#   WAR_ROOM_TMUX_SESSION  tmux session inside it (default war-room — the
+#                          session name is container-internal and identical
+#                          for every squad)
+#
+# Example: COMPOSE_PROJECT_NAME=acme SQUAD_ENV_FILE=/srv/squads/acme/.env \
+#          SQUAD_PAPERCLIP_PORT=7802 SQUAD_DASH_PORT=7801 scripts/health-check.sh
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PAPERCLIP_PORT="${PAPERCLIP_PORT:-3100}"
-TTYD_PORT="${TTYD_PORT:-7681}"
+PAPERCLIP_PORT="${SQUAD_PAPERCLIP_PORT:-${PAPERCLIP_PORT:-3100}}"
+DASH_PORT="${SQUAD_DASH_PORT:-7682}"
 PAPERCLIP_URL="http://localhost:${PAPERCLIP_PORT}"
-TTYD_URL="http://localhost:${TTYD_PORT}"
+DASH_URL="http://localhost:${DASH_PORT}"
+WAR_ROOM_SERVICE="${WAR_ROOM_SERVICE:-war-room}"
+TMUX_SESSION="${WAR_ROOM_TMUX_SESSION:-war-room}"
+
+# Scope compose to the squad's project/env when provided (squadctl sets both).
+COMPOSE_ARGS=()
+[ -n "${COMPOSE_PROJECT_NAME:-}" ] && COMPOSE_ARGS+=(-p "$COMPOSE_PROJECT_NAME")
+[ -n "${SQUAD_ENV_FILE:-}" ] && COMPOSE_ARGS+=(--env-file "$SQUAD_ENV_FILE")
+compose() {
+  # ${arr[@]+...} keeps `set -u` happy on bash 3.2 when the array is empty
+  docker compose ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} "$@"
+}
 
 # ---------------------------------------------------------------------------
 # Color helpers
@@ -65,10 +91,10 @@ echo "${BOLD}Docker Compose Services${RESET}"
 cd "$PROJECT_DIR"
 
 # Get running service names
-COMPOSE_OUTPUT=$(docker compose ps --format '{{.Name}} {{.State}} {{.Health}}' 2>/dev/null || echo "")
+COMPOSE_OUTPUT=$(compose ps --format '{{.Name}} {{.State}} {{.Health}}' 2>/dev/null || echo "")
 
 if [[ -z "$COMPOSE_OUTPUT" ]]; then
-  check "docker compose" 1 "no services found -- run setup.sh first"
+  check "docker compose" 1 "no services found -- is the squad up? (docker compose up -d)"
 else
   while IFS= read -r line; do
     NAME=$(echo "$line" | awk '{print $1}')
@@ -107,7 +133,7 @@ COMPANY_COUNT=$(curl -sf "${PAPERCLIP_URL}/api/companies" 2>/dev/null \
 if [[ "$COMPANY_COUNT" -gt 0 ]]; then
   check "Registered companies" 0 "count=${COMPANY_COUNT}"
 else
-  check "Registered companies" 1 "none found -- run setup.sh"
+  check "Registered companies" 1 "none found -- run scripts/setup-company.sh"
 fi
 
 echo
@@ -117,36 +143,36 @@ echo
 # ---------------------------------------------------------------------------
 echo "${BOLD}War Room (tmux)${RESET}"
 
-WAR_ROOM_CONTAINER=$(docker compose ps -q war-room 2>/dev/null || echo "")
+WAR_ROOM_CONTAINER=$(compose ps -q "$WAR_ROOM_SERVICE" 2>/dev/null || echo "")
 if [[ -n "$WAR_ROOM_CONTAINER" ]]; then
   TMUX_OUTPUT=$(docker exec "$WAR_ROOM_CONTAINER" tmux list-sessions 2>/dev/null || echo "")
-  if echo "$TMUX_OUTPUT" | grep -q "war-room"; then
-    PANE_COUNT=$(docker exec "$WAR_ROOM_CONTAINER" tmux list-panes -t war-room 2>/dev/null | wc -l | tr -d ' ')
-    check "tmux war-room session" 0 "panes=${PANE_COUNT}"
+  if echo "$TMUX_OUTPUT" | grep -q "$TMUX_SESSION"; then
+    WINDOW_COUNT=$(docker exec "$WAR_ROOM_CONTAINER" tmux list-windows -t "$TMUX_SESSION" 2>/dev/null | wc -l | tr -d ' ')
+    check "tmux $TMUX_SESSION session" 0 "windows=${WINDOW_COUNT}"
   else
-    check "tmux war-room session" 1 "session not found"
+    check "tmux $TMUX_SESSION session" 1 "session not found"
   fi
 else
-  check "war-room container" 1 "not running"
+  check "$WAR_ROOM_SERVICE container" 1 "not running"
 fi
 
 echo
 
 # ---------------------------------------------------------------------------
-# 4. ttyd web terminal
+# 4. Dashboard (warroom2)
 # ---------------------------------------------------------------------------
-echo "${BOLD}ttyd Web Terminal${RESET}"
+echo "${BOLD}Dashboard (warroom2)${RESET}"
 
-TTYD_HTTP=$(curl -s -o /dev/null -w "%{http_code}" "${TTYD_URL}" 2>/dev/null || echo "000")
-if [[ "$TTYD_HTTP" == "200" || "$TTYD_HTTP" == "401" ]]; then
+DASH_HTTP=$(curl -s -o /dev/null -w "%{http_code}" "${DASH_URL}" 2>/dev/null || echo "000")
+if [[ "$DASH_HTTP" == "200" || "$DASH_HTTP" == "401" ]]; then
   # 401 is expected when basic auth is enabled
-  if [[ "$TTYD_HTTP" == "401" ]]; then
-    check "ttyd at ${TTYD_URL}" 0 "HTTP 401 (auth enabled)"
+  if [[ "$DASH_HTTP" == "401" ]]; then
+    check "dashboard at ${DASH_URL}" 0 "HTTP 401 (auth enabled)"
   else
-    check "ttyd at ${TTYD_URL}" 0 "HTTP ${TTYD_HTTP}"
+    check "dashboard at ${DASH_URL}" 0 "HTTP ${DASH_HTTP}"
   fi
 else
-  check "ttyd at ${TTYD_URL}" 1 "HTTP ${TTYD_HTTP} (expected 200 or 401)"
+  check "dashboard at ${DASH_URL}" 1 "HTTP ${DASH_HTTP} (expected 200 or 401)"
 fi
 
 echo
@@ -159,7 +185,7 @@ if [[ "$OVERALL" -eq 0 ]]; then
   echo "${BOLD}${GREEN}Overall: ALL CHECKS PASSED${RESET}"
 else
   echo "${BOLD}${RED}Overall: SOME CHECKS FAILED${RESET}"
-  echo "  Run 'scripts/setup.sh' to initialize, or 'docker compose up -d' to start services."
+  echo "  Run 'scripts/setup-company.sh' to register the company, or 'docker compose up -d' to start services."
 fi
 echo
 
