@@ -14,6 +14,11 @@
 
 Slug rules: `^[a-z][a-z0-9-]{1,22}$` (compose project-name safe). Tenant #1's slug is `gonorth`.
 
+**Slug guidance:** pick a short bare name (`acme`, `probe`) — every container, volume,
+network and URL carries the slug, so redundant prefixes like `squad-` only add noise.
+The E2E acceptance run used slug `probe` (kept as the canonical example everywhere:
+this doc, `squadctl help`, `deploy/templates/squad.env.test`).
+
 | Resource | Naming template | `gonorth` example | `acme` example |
 |---|---|---|---|
 | Squad slug | `<slug>` | `gonorth` | `acme` |
@@ -26,7 +31,9 @@ Slug rules: `^[a-z][a-z0-9-]{1,22}$` (compose project-name safe). Tenant #1's sl
 | Squad config (roster, paperclip.md, mcp) | `/srv/squads/<slug>/config/` | `/srv/squads/gonorth/config/agents.json` | `/srv/squads/acme/config/agents.json` |
 | Squad personas | `/srv/squads/<slug>/agents/<agent>/` | `/srv/squads/gonorth/agents/ceo-gonorth/` | `/srv/squads/acme/agents/captain/` |
 | Squad private (extra tokens, ops creds) | `/srv/squads/<slug>/private/` | `/srv/squads/gonorth/private/agent-tokens.env` | `/srv/squads/acme/private/agent-tokens.env` |
-| Squad bus | `/srv/squads/<slug>/bus/` (→ `/workspace/agent-bus`) | `/srv/squads/gonorth/bus/messages.ndjson` | `/srv/squads/acme/bus/messages.ndjson` |
+| Squad bus | `/srv/squads/<slug>/bus/` (→ `/workspace/agent-bus` in war-room AND warroom2) | `/srv/squads/gonorth/bus/messages.ndjson` | `/srv/squads/acme/bus/messages.ndjson` |
+| Squad companies (AGENTS.md instruction files, → `/paperclip/companies` ro) | `/srv/squads/<slug>/companies/` | `/srv/squads/gonorth/companies/` | `/srv/squads/acme/companies/` |
+| Squad project scratch (scaffolded; the project clone itself lives in the `<slug>_project-repo` volume) | `/srv/squads/<slug>/project/` | `/srv/squads/gonorth/project/` | `/srv/squads/acme/project/` |
 | Caddy snippet | `/srv/squads/<slug>/caddy.snippet` | `/srv/squads/gonorth/caddy.snippet` | `/srv/squads/acme/caddy.snippet` |
 | Backups | `/srv/squads/<slug>/backups/` | `/srv/squads/gonorth/backups/` | `/srv/squads/acme/backups/` |
 | Port block (loopback-only) | `SQUAD_PORT_BASE = 7700 + 100·i`; dash=`+1`, paperclip=`+2`, playwright=`+3` | grandfathered: 7682 / 3100 / 8931 (3100 pinned by the existing `paperclip.tlk.solutions` Caddy route) | base 7800 → 7801 / 7802 / 7803 |
@@ -35,7 +42,10 @@ Slug rules: `^[a-z][a-z0-9-]{1,22}$` (compose project-name safe). Tenant #1's sl
 | Day-2 verbs | `docker compose -p <slug> …` / `./squadctl <verb> <slug>` | `./squadctl logs gonorth war-room` | `./squadctl status acme` |
 | Built images (shared across squads) | `warroom/<service>:latest` via `image:` + `build:` | `warroom/war-room:latest` | same image — no per-squad rebuild |
 
-Permissions: `/srv/squads/` owned `<vm-user>:docker`, each squad dir `0750`, `.env` 0600,
+Permissions: `/srv/squads/` owned `<vm-user>:<vm-user>` (on the platform VM: `ravi:ravi`),
+each squad dir `0750 <vm-user>:caddy` — group `caddy` so the host Caddy's
+`import /srv/squads/*/caddy.snippet` glob (ExecReload runs as `User=caddy`) can traverse
+the dir and read the snippet; `squadctl new` applies the chgrp. `.env` 0600,
 `private/` + `backups/` 0700, `bus/` 0770 (all enforced by `squadctl new`).
 
 ---
@@ -67,14 +77,26 @@ The tunnel target defaults to `$USER@$(hostname)`; set **`SQUADCTL_SSH_TARGET=<v
 **How it's wired:** the host Caddy gets exactly one extra site block —
 
 ```caddyfile
-http://127.0.0.1:8800 {
+http://:8800 {
+    bind 127.0.0.1
     import /srv/squads/*/caddy.snippet
 }
 ```
 
+> **NOT `http://127.0.0.1:8800 { … }`** (E2E finding F2): in Caddy semantics a host in
+> the site address is a *Host-header matcher* — that form only matches requests whose
+> Host **is** `127.0.0.1`, so `dash.<slug>.localhost` never reaches the snippets (every
+> squad URL returns Caddy's hollow empty 200) — and it leaves the listener on `*:8800`.
+> `http://:8800` + `bind 127.0.0.1` matches any Host while listening on loopback only.
+
 — and each squad's `caddy.snippet` (host-matchers → `reverse_proxy 127.0.0.1:<port>`)
 is rendered by `squadctl new` / re-rendered by `squadctl apply`, followed by
-`systemctl reload caddy`. Existing Caddy site blocks are untouched.
+`systemctl reload caddy` (squadctl uses `sudo -n` when non-root and prints the manual
+command + sudoers one-liner if passwordless sudo is missing). The squad dir + snippet
+are `chgrp caddy` by `squadctl new` so the import glob, which runs as `User=caddy`,
+can actually read them (E2E finding F3). `./squadctl doctor` verifies each snippet is
+**loaded in the running Caddy** (admin API `127.0.0.1:2019/config/`), not just present
+on disk. Existing Caddy site blocks are untouched.
 
 **Auth:** basic-auth lives inside warroom2 (`WARROOM2_BASIC_AUTH_*`, per-squad realm).
 The dashboard's terminal WebSocket is unauthenticated by operator decision — with all
@@ -103,6 +125,18 @@ Telegram token + group ID, and runs the **staged bring-up**:
    `PAPERCLIP_COMPANY_ID` back into the squad `.env`
 3. `up -d --no-deps war-room warroom2` — war-room boots with the company ID already
    in its env; `--no-deps` keeps stage 3 from chain-recreating paperclip
+
+**Paperclip deployment mode (E2E finding F4):** squad paperclips default to
+`PAPERCLIP_DEPLOYMENT_MODE=local_trusted` (set in the squad `.env` from the template) —
+required for stage 2 to work at all: in `authenticated` mode a fresh instance has zero
+instance admins and `setup-company.sh`'s unauthenticated `/api/companies` calls 403
+(bootstrap would need the full sign-up → bootstrap-CEO invite → accept dance). This is
+security-equivalent at squad exposure: every squad port binds `127.0.0.1` only, behind
+the SSH tunnel. Set `authenticated` ONLY for instances exposed beyond loopback —
+tenant #1 (`gonorth`, public `paperclip.tlk.solutions`) pins it in its `.env`.
+`setup-company.sh` sends `Origin == Host` on every call (paperclip's board-mutation
+guard requires it), so it also works against already-bootstrapped authenticated
+instances given a valid session.
 
 Full fresh-host walkthrough (prerequisites, what to fill, what's not in the repo):
 [REPRODUCING.md](../REPRODUCING.md).

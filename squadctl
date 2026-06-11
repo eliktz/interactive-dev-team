@@ -173,15 +173,44 @@ list_squads() {
 
 count_squads() { list_squads | wc -l | tr -d ' '; }
 
+# E2E finding F1: squadctl normally runs as a non-root operator, so a bare
+# `systemctl reload caddy` fails silently and the new squad's URLs are dead
+# until someone reloads by hand. Non-root → try passwordless sudo (-n: never
+# prompt); on failure print the EXACT command + the sudoers line to fix it.
 reload_caddy() {
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet caddy 2>/dev/null; then
-    if systemctl reload caddy 2>/dev/null; then
-      say "caddy reloaded"
+    local -a reload_cmd=(systemctl reload caddy)
+    [ "$(id -u)" -ne 0 ] && reload_cmd=(sudo -n systemctl reload caddy)
+    if "${reload_cmd[@]}" 2>/dev/null; then
+      say "caddy reloaded (${reload_cmd[*]})"
     else
-      warn "caddy reload failed — run manually: systemctl reload caddy"
+      warn "caddy reload FAILED — squad URLs will NOT route until caddy reloads."
+      warn "run this on the VM now:        sudo systemctl reload caddy"
+      warn "to make it work unattended, add a passwordless sudoers rule:"
+      warn "  echo '${USER:-operator} ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy' | sudo tee /etc/sudoers.d/squadctl-caddy"
+      warn "then verify with: ./squadctl doctor (checks the snippet is actually LOADED)"
     fi
   else
-    say "note: caddy not reloaded (no active caddy service on this host); on the VM run: systemctl reload caddy"
+    say "note: caddy not reloaded (no active caddy service on this host); on the VM run: sudo systemctl reload caddy"
+  fi
+}
+
+# E2E finding F3: caddy's ExecReload runs as User=caddy, which cannot traverse
+# 0750 ravi:ravi squad dirs — the /srv/squads/*/caddy.snippet import glob then
+# silently expands to NOTHING (and validate-as-root lies about it). Group the
+# squad dir + snippet to `caddy` (others stay excluded; owner keeps rwx).
+# Direct chgrp works only if the operator is in the caddy group → fall back to
+# passwordless sudo, then warn with the exact command.
+grant_caddy_read() { # grant_caddy_read PATH...
+  if ! getent group caddy >/dev/null 2>&1; then
+    say "note: no 'caddy' group on this host — skipping snippet-readability chgrp (dev box?)"
+    return 0
+  fi
+  if chgrp caddy "$@" 2>/dev/null || sudo -n chgrp caddy "$@" 2>/dev/null; then
+    say "chgrp caddy: $* (caddy import glob can traverse/read)"
+  else
+    warn "could not 'chgrp caddy' on: $* — the caddy import glob will skip this squad's snippet."
+    warn "run manually on the VM: sudo chgrp caddy $*"
   fi
 }
 
@@ -359,6 +388,9 @@ cmd_new() {
   # --- caddy snippet ---------------------------------------------------------
   render_caddy_snippet "$slug" "$home" "$dash_port" "$pc_port"
   say "Rendered $home/caddy.snippet"
+  # F3: the caddy user must traverse the 0750 squad dir + read the snippet,
+  # or the host Caddy's import glob silently skips this squad.
+  grant_caddy_read "$home" "$home/caddy.snippet"
   reload_caddy
 
   echo "==> FILL BEFORE FIRST REAL USE (edit $envfile):"
@@ -650,6 +682,17 @@ cmd_doctor() {
   [ -d "$SQUADS_ROOT" ] || die "squads root not found: $SQUADS_ROOT"
   say "doctor: squads under $SQUADS_ROOT"
 
+  # F1: a snippet on disk is NOT proof it routes — F3 taught us the import
+  # glob can silently expand to nothing. Fetch the RUNNING config once from
+  # the caddy admin API; each squad below checks its host matcher is in it.
+  local caddy_active=0 caddy_cfg=""
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet caddy 2>/dev/null; then
+    caddy_active=1
+    caddy_cfg=$(curl -sf --max-time 3 http://127.0.0.1:2019/config/ 2>/dev/null || true)
+  else
+    say "note: no active caddy service — snippet loaded-state checks skipped"
+  fi
+
   local s envf dash_port pc_port pw_port p
   for s in $(list_squads); do
     echo "[$s]"
@@ -668,6 +711,18 @@ cmd_doctor() {
       fi
     else
       doctor_report fail "caddy.snippet missing — fix with: ./squadctl apply $s"
+    fi
+
+    # F1: verify the snippet is LOADED in the running caddy, not just on disk
+    # (compares the squad's host matcher against the admin API's live config).
+    if [ -f "$SQUADS_ROOT/$s/caddy.snippet" ] && [ "$caddy_active" -eq 1 ]; then
+      if [ -z "$caddy_cfg" ]; then
+        doctor_report warn "caddy admin API (127.0.0.1:2019) unreachable — cannot verify the snippet is loaded"
+      elif printf '%s' "$caddy_cfg" | grep -qF "dash.$s.localhost"; then
+        doctor_report ok "caddy.snippet LOADED (dash.$s.localhost present in running caddy config)"
+      else
+        doctor_report fail "caddy.snippet on disk but NOT in the running caddy config — fix: sudo chgrp caddy $SQUADS_ROOT/$s $SQUADS_ROOT/$s/caddy.snippet && sudo systemctl reload caddy"
+      fi
     fi
 
     # loopback ports listening (only meaningful when the squad is running)

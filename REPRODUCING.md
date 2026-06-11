@@ -16,12 +16,19 @@ where, and by what.
   (see §6). If you install it, add this one site block to `/etc/caddy/Caddyfile`:
 
   ```caddyfile
-  http://127.0.0.1:8800 {
+  http://:8800 {
+      bind 127.0.0.1
       import /srv/squads/*/caddy.snippet
   }
   ```
 
+  (Not `http://127.0.0.1:8800 { … }` — that Host-matches only the literal `127.0.0.1`
+  and `dash.<slug>.localhost` would never route; see docs/MULTI_SQUAD.md §2.)
+
   then `sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy`.
+  `squadctl new` makes each squad dir + snippet group `caddy` so the import glob
+  (running as `User=caddy`) can read them, and reloads caddy via `sudo -n` when
+  needed; `./squadctl doctor` verifies the snippet is actually loaded.
 - An **LLM provider** for the agents: the default is claude.ai OAuth (you log in once,
   interactively, after first boot — Pro/Max/Team plan required for Telegram channels);
   alternatives are `ANTHROPIC_API_KEY` or AWS Bedrock creds in the squad `.env`.

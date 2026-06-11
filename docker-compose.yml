@@ -97,6 +97,11 @@ services:
       # per-agent .claude/ here.
       - ${SQUAD_HOME:?SQUAD_HOME is required - squad instance dir, e.g. /srv/squads/SLUG (see deploy/templates/squad.env.template)}/agents:/workspace/agents
       - ${SQUAD_HOME}/config:/workspace/config
+      # Agent bus journal (E2E finding F7): the agent templates instruct every
+      # agent to append to /workspace/agent-bus/messages.ndjson — without this
+      # mount the path doesn't exist inside war-room and agents cannot write
+      # the bus (warroom2 alone had it). Same host dir as warroom2's mount.
+      - ${SQUAD_HOME}/bus:/workspace/agent-bus
       # Wizard-managed agent Telegram tokens (KEY=value lines, 0600) — read
       # by launch.sh at boot via /workspace/private/agent-tokens.env.
       - ${SQUAD_HOME}/private:/workspace/private:ro
@@ -137,7 +142,14 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
+      # Deployment mode (E2E finding F4): default `local_trusted` so the
+      # staged bring-up's setup-company.sh can register the company without a
+      # bootstrap-CEO auth dance — security-equivalent at this exposure level
+      # because every squad paperclip binds 127.0.0.1 only and is reachable
+      # solely through the SSH tunnel / host Caddy. Squads that ARE exposed
+      # beyond loopback (gonorth via paperclip.tlk.solutions) MUST set
+      # PAPERCLIP_DEPLOYMENT_MODE=authenticated in their squad .env.
+      PAPERCLIP_DEPLOYMENT_MODE: "${PAPERCLIP_DEPLOYMENT_MODE:-local_trusted}"
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-paperclip-change-me-in-production}"
       PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
       PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"

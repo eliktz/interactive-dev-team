@@ -34,7 +34,7 @@ git checkout -- config/paperclip.md
 #     into what will become the squad instance dir:
 sudo mkdir -p /srv/squads/gonorth
 sudo cp -a agents config /srv/squads/gonorth/
-sudo chown -R "$USER":docker /srv/squads/gonorth
+sudo chown -R "$USER":"$USER" /srv/squads/gonorth   # (group `caddy` is set on the dir later, step 3)
 
 # 0.3 Clean the tree completely (self-edits are now safe in /srv/squads/gonorth/):
 git stash -u            # belt-and-suspenders snapshot of anything else, kept in the stash
@@ -124,6 +124,7 @@ Source the values from the old `.env` next to the old compose project and from
 | `WARROOM2_BASIC_AUTH_USER` / `_PASS` / `WARROOM2_ADMIN_TOKEN` | current values (keep — operators' saved logins survive) |
 | `BETTER_AUTH_SECRET` | **MUST equal the current live value** — a new secret invalidates every Paperclip session |
 | `PAPERCLIP_PUBLIC_URL` | keep the live public URL (`https://paperclip.tlk.solutions`) |
+| `PAPERCLIP_DEPLOYMENT_MODE` | `authenticated` — gonorth's paperclip is exposed beyond loopback (`paperclip.tlk.solutions`), so it MUST pin this: the compose template defaults to `local_trusted` for loopback-only squads (E2E finding F4) |
 | `PAPERCLIP_ALLOWED_HOSTNAMES` | current value + `paperclip.gonorth.localhost` |
 | `PAPERCLIP_COMPANY_ID` | `a951bb35-24a9-412a-bbcc-629c5acae619` (existing company — do NOT re-run setup-company.sh) |
 | `AZURE_OPENAI_API_KEY` | current value |
@@ -172,12 +173,19 @@ The snippet exists from step 2. Add the one import block to `/etc/caddy/Caddyfil
 (existing `paperclip.tlk.solutions` and `:80/bitbucket` blocks untouched):
 
 ```caddyfile
-http://127.0.0.1:8800 {
+http://:8800 {
+    bind 127.0.0.1
     import /srv/squads/*/caddy.snippet
 }
 ```
 
+(Not `http://127.0.0.1:8800 { … }` — that Host-matches only the literal `127.0.0.1`
+and never routes `*.localhost` hosts; see docs/MULTI_SQUAD.md §2, E2E finding F2.)
+
 ```bash
+# The import glob runs as User=caddy — it must be able to traverse the squad
+# dir and read the snippet (E2E finding F3; squadctl new does this for new squads):
+sudo chgrp caddy /srv/squads/gonorth /srv/squads/gonorth/caddy.snippet
 sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
 ```
 

@@ -98,7 +98,12 @@ info "roster: ${AGENTS_JSON:-<none — generic single-captain default>}"
 api() {
   local method="$1" path="$2"
   shift 2
+  # Origin==Host is REQUIRED (E2E finding F6): paperclip's board-mutation
+  # guard rejects mutations whose Origin header doesn't match the Host —
+  # sending it on every call keeps this script working against BOTH
+  # local_trusted (squad default) and authenticated paperclip instances.
   curl -sf -X "$method" -H "Content-Type: application/json" \
+    -H "Origin: ${PAPERCLIP_URL}" \
     "${PAPERCLIP_URL}/api${path}" "$@"
 }
 

@@ -5,9 +5,15 @@
 # $SQUAD_HOME/caddy.snippet and imported by the ONE new site block in the
 # host /etc/caddy/Caddyfile:
 #
-#   http://127.0.0.1:8800 {
+#   http://:8800 {
+#       bind 127.0.0.1
 #       import /srv/squads/*/caddy.snippet
 #   }
+#
+# (NOT `http://127.0.0.1:8800 { … }` — that form Host-matches only the literal
+# `127.0.0.1`, so dash.<slug>.localhost would never reach these snippets; see
+# docs/MULTI_SQUAD.md §2. The squad dir + this file must be group `caddy` so
+# the import glob, running as User=caddy, can read them — squadctl new does it.)
 #
 # Browsers resolve *.localhost to loopback natively (RFC 6761), and the Host
 # header survives the SSH tunnel — so one loopback listener routes every
