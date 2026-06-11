@@ -64,28 +64,39 @@
     });
   }
 
+  var rosterError = null;
+
   async function fetchAgents() {
     try {
       var data = await window.WRFetchJSON('/api/agents');
       if (!data) return [];
       if (Array.isArray(data)) return data;
+      rosterError = data.roster_error || null;
       if (Array.isArray(data.agents)) return data.agents;
       return [];
     } catch (e) {
       console.error('[init] /api/agents failed', e);
+      rosterError = 'failed to load /api/agents';
       return [];
     }
   }
 
-  function ensureAgentDefaults(agents) {
-    // Fallback registry if backend is empty — UI still renders.
-    if (agents && agents.length) return agents;
-    return [
-      { id: 'captain', display_name: 'Captain', model: 'sonnet', color: '#7fd3ff', kind: 'pty' },
-      { id: 'leo', display_name: 'Leo', model: 'opus', color: '#ffa657', kind: 'pty' },
-      { id: 'iris', display_name: 'Iris (Hedva)', model: 'sonnet', color: '#d2a8ff', kind: 'pty' },
-      { id: 'yefet', display_name: 'Yefet', model: 'gpt-5.5', color: '#7ee787', kind: 'bus' },
-    ];
+  function showRosterBanner(message) {
+    // Fail-loud empty roster: there is NO hardcoded fallback registry — tell
+    // the operator why the tab bar is empty instead of rendering ghosts.
+    var content = document.getElementById('tab-content');
+    if (!content) return;
+    var banner = document.createElement('div');
+    banner.id = 'roster-banner';
+    banner.style.margin = '16px';
+    banner.style.padding = '12px 16px';
+    banner.style.border = '1px solid #f85149';
+    banner.style.borderRadius = '6px';
+    banner.style.color = '#f85149';
+    banner.style.background = 'rgba(248, 81, 73, 0.08)';
+    banner.style.fontFamily = 'monospace';
+    banner.textContent = 'No agents mounted — ' + message;
+    content.appendChild(banner);
   }
 
   function mountPanes(agents) {
@@ -253,12 +264,14 @@
     if (window.WRTabs) window.WRTabs.bindKeyboard();
 
     await ensureAuth();
-    var agents = ensureAgentDefaults(await fetchAgents());
+    var agents = await fetchAgents();
     window.WR2.agents = agents;
     if (window.WRTabs) window.WRTabs.renderTabs(agents);
     mountPanes(agents);
     if (agents.length) {
       if (window.WRTabs) window.WRTabs.switchTo(agents[0].id);
+    } else {
+      showRosterBanner(rosterError || 'config/agents.json has no agents (see warroom2 logs).');
     }
     if (window.WRFiles) window.WRFiles.mount();
     if (window.WRBus) window.WRBus.mount();

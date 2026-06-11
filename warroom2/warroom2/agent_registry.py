@@ -1,34 +1,27 @@
 """warroom2.agent_registry — dynamic agent roster backed by config/agents.json.
 
-Source of truth is ``$WARROOM2_REPO_ROOT/config/agents.json`` (schema
-version 1). The file is mtime-cached: every :func:`list_agents` call re-stats
-the file and re-parses only when the mtime (or path) changes. On a missing or
-invalid file the registry falls back to :data:`DEFAULT_AGENTS` — the
-previously hardcoded roster — and logs a warning once per offending mtime.
+Source of truth is ``$WARROOM2_SQUAD_HOME/config/agents.json`` (schema
+version 1; the legacy ``WARROOM2_REPO_ROOT`` env name is honored as a
+fallback). The file is mtime-cached: every :func:`list_agents` call re-stats
+the file and re-parses only when the mtime (or path) changes.
 
-Window mapping verified against the live war-room tmux session (base-index 1,
-one agent per *window*, not panes):
+FAIL-LOUD: there is NO built-in default roster. When agents.json is missing
+or invalid the registry returns an EMPTY roster, logs an error (once per
+offending mtime) and exposes the failure via :func:`roster_error` so the API
+layer can surface it as a UI banner. A squad's roster is data — seeded by
+squadctl / the admin wizard into the squad's own config — never code.
 
-- ``war-room:1`` → Captain  (cwd ``/workspace/agents/captain``)
-- ``war-room:2`` → Leo      (cwd ``/workspace/agents/ceo-gonorth`` — the
-  legacy persona dir name; the window title may still show the stale
-  ``CEO Yefet (opus)`` — disregard, identity is Leo)
-- ``war-room:3`` → Iris     (cwd ``/workspace/agents/ux-gonorth``)
+Window mapping: one agent per tmux *window* (base-index 1) inside the
+squad's war-room container; ``window`` in agents.json maps to
+``<WARROOM2_TMUX_SESSION>:<window>``. Agents with ``attach="bus"`` are not
+tmux windows — their tab is a chat-style feed over the agent bus
+(``/workspace/agent-bus/messages.ndjson``).
 
-Yefet (``attach="bus"``) is intentionally NOT a tmux window in v1. Per the
-spec in 3b-backend.md, Yefet's tab is a chat-style feed over
-``/workspace/agent-bus/messages.ndjson``.
-
-Model resolution note: per-agent ``model_env`` overrides (CAPTAIN_MODEL,
-CEO_MODEL, UX_MODEL, ...) live in the *war-room* container's environment,
-which the warroom2 container cannot see. ``Agent.model`` therefore always
-displays ``model_default`` from agents.json; the authoritative resolution
-happens in launch.sh inside the war-room container.
-
-Compatibility: the module-level :data:`AGENTS` name is kept as an alias for
-:data:`DEFAULT_AGENTS` so stale ``from .agent_registry import AGENTS``
-imports still resolve, but it is frozen at the fallback roster — ALL
-consumers must go through :func:`list_agents` to see dynamic entries.
+Model resolution note: per-agent ``model_env`` overrides live in the
+*war-room* container's environment, which the warroom2 container cannot see.
+``Agent.model`` therefore always displays ``model_default`` from agents.json;
+the authoritative resolution happens in launch.sh inside the war-room
+container.
 """
 
 from __future__ import annotations
@@ -44,7 +37,7 @@ from typing import Any, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,30}$")
-_MISSING = "<missing>"  # warn-once sentinel used when agents.json is absent
+_MISSING = "<missing>"  # error-once sentinel used when agents.json is absent
 
 
 @dataclass(frozen=True)
@@ -59,61 +52,13 @@ class Agent:
     color: str
 
 
-# Fallback roster — mirrors the live deployment as of 2026-06. Used whenever
-# config/agents.json is missing or fails validation. NOTE: leo's persona dir
-# is the legacy ``ceo-gonorth`` (the running war-room:2 cwd), not ``leo``.
-DEFAULT_AGENTS: List[Agent] = [
-    Agent(
-        id="captain",
-        name="Captain",
-        model="sonnet",
-        attach="tmux",
-        tmux_target="war-room:1",
-        container="interactive-dev-team-war-room-1",
-        persona_path="/workspace/agents/captain/AGENTS.md",
-        color="#7fd3ff",
-    ),
-    Agent(
-        id="leo",
-        name="Leo",
-        model="opus",
-        attach="tmux",
-        tmux_target="war-room:2",
-        container="interactive-dev-team-war-room-1",
-        persona_path="/workspace/agents/ceo-gonorth/AGENTS.md",
-        color="#ffa657",
-    ),
-    Agent(
-        id="iris",
-        name="Iris (Hedva)",
-        model="sonnet",
-        attach="tmux",
-        tmux_target="war-room:3",
-        container="interactive-dev-team-war-room-1",
-        persona_path="/workspace/agents/ux-gonorth/AGENTS.md",
-        color="#d2a8ff",
-    ),
-    Agent(
-        id="yefet",
-        name="Yefet",
-        model="gpt-5.5",
-        attach="bus",
-        tmux_target=None,
-        container="interactive-dev-team-openclaw-1",
-        persona_path="/home/node/.openclaw/workspace-gonorth/AGENTS.md",
-        color="#7ee787",
-    ),
-]
-
-# Backwards-compat alias: stale imports (e.g. wizard_api's
-# ``from .agent_registry import AGENTS``) keep resolving, but this is the
-# static fallback only. Use list_agents() for the live roster.
-AGENTS: List[Agent] = DEFAULT_AGENTS
-
-
 def _config_path() -> str:
-    """agents.json path under the repo root (same env pattern as settings)."""
-    root = os.environ.get("WARROOM2_REPO_ROOT", "/workspace/interactive-dev-team")
+    """agents.json path under the squad home (same env pattern as settings)."""
+    root = (
+        os.environ.get("WARROOM2_SQUAD_HOME")
+        or os.environ.get("WARROOM2_REPO_ROOT")
+        or "/workspace/interactive-dev-team"
+    )
     return root + "/config/agents.json"
 
 
@@ -139,22 +84,20 @@ def _parse_agent(entry: Dict[str, Any]) -> Agent:
             raise ValueError(f"agent {agent_id!r}: window must be an int")
         session = os.environ.get("WARROOM2_TMUX_SESSION", "war-room")
         tmux_target: Optional[str] = f"{session}:{window}"
-        container = os.environ.get(
-            "WARROOM2_WARROOM_CONTAINER", "interactive-dev-team-war-room-1"
-        )
+        # Squad-scoped exec target; EMPTY when unconfigured (fail-loud at
+        # exec time) — never a baked-in container name.
+        container = os.environ.get("WARROOM2_WARROOM_CONTAINER", "")
         # model_env (e.g. CAPTAIN_MODEL) lives in the war-room container's
         # env, invisible from warroom2 — display model_default only.
         model = entry["model_default"]
     else:
         tmux_target = None
-        container = os.environ.get(
-            "WARROOM2_OPENCLAW_CONTAINER", "interactive-dev-team-openclaw-1"
-        )
+        container = os.environ.get("WARROOM2_OPENCLAW_CONTAINER", "")
         model = entry.get("model_default") or entry.get("model") or ""
 
     # persona_path derives from persona_dir; an explicit "persona_path" key
-    # overrides it (needed for yefet, whose AGENTS.md lives outside
-    # /workspace/agents — see DEFAULT_AGENTS).
+    # overrides it (for bus agents whose AGENTS.md lives outside
+    # /workspace/agents).
     persona_path = entry.get("persona_path") or (
         f"/workspace/agents/{entry['persona_dir']}/AGENTS.md"
     )
@@ -191,47 +134,59 @@ def _parse_file(path: str) -> List[Agent]:
 _lock = threading.Lock()
 _cached_path: Optional[str] = None
 _cached_mtime_ns: Optional[int] = None
-_cached_agents: List[Agent] = DEFAULT_AGENTS
-_warned_key: Optional[object] = None  # last mtime (or _MISSING) we warned for
+_cached_agents: List[Agent] = []
+_errored_key: Optional[object] = None  # last mtime (or _MISSING) we logged for
+_roster_error: Optional[str] = None  # last load failure; see roster_error()
 
 
 def list_agents() -> List[Agent]:
-    """Live roster from agents.json; DEFAULT_AGENTS on missing/invalid file.
+    """Live roster from agents.json; EMPTY roster on a missing/invalid file.
 
     Re-stats the file on every call; re-parses only when mtime changes.
+    Failures are logged and exposed via :func:`roster_error` — there is
+    deliberately no hardcoded fallback roster.
     """
-    global _cached_path, _cached_mtime_ns, _cached_agents, _warned_key
+    global _cached_path, _cached_mtime_ns, _cached_agents
+    global _errored_key, _roster_error
     path = _config_path()
     with _lock:
         try:
             mtime_ns = os.stat(path).st_mtime_ns
         except OSError:
-            if _warned_key != _MISSING:
-                log.warning(
-                    "agents.json not found at %s; using DEFAULT_AGENTS", path
-                )
-                _warned_key = _MISSING
+            _roster_error = f"agents.json not found at {path}"
+            if _errored_key != _MISSING:
+                log.error("%s; serving an EMPTY roster", _roster_error)
+                _errored_key = _MISSING
             _cached_path, _cached_mtime_ns = None, None
-            _cached_agents = DEFAULT_AGENTS
-            return list(_cached_agents)
+            _cached_agents = []
+            return []
 
         if path == _cached_path and mtime_ns == _cached_mtime_ns:
             return list(_cached_agents)
 
         try:
             agents = _parse_file(path)
+            _roster_error = None
+            _errored_key = None
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            if _warned_key != mtime_ns:
-                log.warning(
-                    "agents.json at %s invalid (%s); using DEFAULT_AGENTS",
-                    path,
-                    exc,
-                )
-                _warned_key = mtime_ns
-            agents = DEFAULT_AGENTS
+            _roster_error = f"agents.json at {path} invalid ({exc})"
+            if _errored_key != mtime_ns:
+                log.error("%s; serving an EMPTY roster", _roster_error)
+                _errored_key = mtime_ns
+            agents = []
         _cached_path, _cached_mtime_ns = path, mtime_ns
         _cached_agents = agents
         return list(_cached_agents)
+
+
+def roster_error() -> Optional[str]:
+    """Last roster-load failure message (None when the roster parsed cleanly).
+
+    Surfaced by ``GET /api/agents`` so the UI can render a banner instead of
+    an unexplained empty tab bar.
+    """
+    with _lock:
+        return _roster_error
 
 
 def get_agent(agent_id: str) -> Optional[Agent]:

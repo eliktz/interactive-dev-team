@@ -1,4 +1,4 @@
-"""warroom2.agents_api — REST endpoints for the 4 agents.
+"""warroom2.agents_api — REST endpoints for the roster agents.
 
 - ``GET  /api/agents``                       list agents + last-activity ts
 - ``POST /api/agents/{id}/send-message``     write to tmux send-keys or bus
@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from .agent_registry import Agent, get_agent, list_agents
+from .agent_registry import Agent, get_agent, list_agents, roster_error
 from .auth import basic_auth_dependency
 from . import docker_client
 from .settings import settings
@@ -70,7 +70,9 @@ async def get_agents(_user: str = Depends(basic_auth_dependency)) -> Dict:
     out: List[Dict] = []
     for agent in list_agents():
         out.append(_agent_to_json(agent, _last_activity_for(agent)))
-    return {"agents": out, "ts": time.time()}
+    # roster_error is non-None when agents.json is missing/invalid: the
+    # roster is then EMPTY (fail-loud, no fallback) and the UI shows a banner.
+    return {"agents": out, "roster_error": roster_error(), "ts": time.time()}
 
 
 @router.post("/api/agents/{agent_id}/send-message")

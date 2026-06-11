@@ -11,8 +11,8 @@ File mutations are atomic (write to ``.tmp`` then ``os.replace``) and create a
 ``.bak-<utc-iso>-<pid>-<seq>`` backup of the original (when present) before
 any write (pid + monotonic seq make same-second backups collision-proof).
 
-The wizard mutates files inside ``settings.interactive_dev_team_root`` which is
-mounted into warroom2 as a NEW rw bind from the host.
+The wizard mutates files inside ``settings.squad_home`` — the squad instance
+dir (``${SQUAD_HOME}`` on the host) mounted rw into warroom2.
 
 Apply path (v2 — agents.json era):
 - ``launch.sh`` is NEVER patched anymore. The canonical roster lives in
@@ -93,62 +93,35 @@ TG_ID_RE = re.compile(r"^-?\d+$")
 
 AGENTS_JSON_VERSION = 1
 
-# Canonical seed mirroring the pre-agents.json hardcoded reality (registry
-# names/colors + the live launch.sh window labels / persona dirs / env vars).
-# Used ONLY when config/agents.json does not exist yet: the wizard then
-# creates the file as seed + new agent so the roster is complete.
-#
-# NOTE: leo's persona_dir is the legacy "ceo-gonorth" (the running window 2
-# cwd), NOT "leo". Labels "CEO Yefet" / "UX Hedva" mirror the current tmux
-# window-name bases (stale wording, but live reality).
+
+def _token_env_name(slug: str) -> str:
+    return f"{slug.upper().replace('-', '_')}_TELEGRAM_TOKEN"
+
+
+def _model_env_name(slug: str) -> str:
+    return f"{slug.upper().replace('-', '_')}_MODEL"
+
+
+# Generic single-captain seed. Used ONLY when config/agents.json does not
+# exist yet: the wizard then creates the file as seed + new agent so the
+# roster is complete. Tenant-neutral by design — a squad's real roster is
+# data in its own config/agents.json (scaffolded by squadctl), never code.
+SEED_SLUG = "captain"
+
 SEED_AGENTS: Dict = {
     "version": AGENTS_JSON_VERSION,
     "agents": [
         {
-            "id": "captain",
+            "id": SEED_SLUG,
             "name": "Captain",
             "label": "Captain",
             "attach": "tmux",
             "window": 1,
-            "persona_dir": "captain",
-            "model_env": "CAPTAIN_MODEL",
+            "persona_dir": SEED_SLUG,
+            "model_env": _model_env_name(SEED_SLUG),
             "model_default": "sonnet",
-            "token_env": "CAPTAIN_TELEGRAM_TOKEN",
+            "token_env": _token_env_name(SEED_SLUG),
             "color": "#7fd3ff",
-        },
-        {
-            "id": "leo",
-            "name": "Leo",
-            "label": "CEO Yefet",
-            "attach": "tmux",
-            "window": 2,
-            "persona_dir": "ceo-gonorth",
-            "model_env": "CEO_MODEL",
-            "model_default": "opus",
-            "token_env": "CEO_GONORTH_TELEGRAM_TOKEN",
-            "color": "#ffa657",
-        },
-        {
-            "id": "iris",
-            "name": "Iris (Hedva)",
-            "label": "UX Hedva",
-            "attach": "tmux",
-            "window": 3,
-            "persona_dir": "ux-gonorth",
-            "model_env": "UX_MODEL",
-            "model_default": "sonnet",
-            "token_env": "UX_GONORTH_TELEGRAM_TOKEN",
-            "color": "#d2a8ff",
-        },
-        {
-            "id": "yefet",
-            "name": "Yefet",
-            "label": "Yefet",
-            "attach": "bus",
-            "persona_path": "/home/node/.openclaw/workspace-gonorth/AGENTS.md",
-            "container": "interactive-dev-team-openclaw-1",
-            "model_default": "gpt-5.5",
-            "color": "#7ee787",
         },
     ],
 }
@@ -252,7 +225,7 @@ def _unique_suffix() -> str:
 
 
 def _root() -> str:
-    return settings.interactive_dev_team_root
+    return settings.squad_home
 
 
 def _agent_dir(slug: str) -> str:
@@ -300,10 +273,6 @@ def _load_agents_config() -> Dict:
             "config/agents.json malformed: expected {\"version\": 1, \"agents\": [...]}"
         )
     return data
-
-
-def _token_env_name(slug: str) -> str:
-    return f"{slug.upper().replace('-', '_')}_TELEGRAM_TOKEN"
 
 
 def _next_window(config: Dict) -> int:
@@ -724,6 +693,13 @@ async def apply(body: WizardBody, _gate: str = Depends(wizard_gate)) -> Dict:
 @router.post("/restart-warroom")
 async def restart_warroom(_gate: str = Depends(wizard_gate)) -> Dict:
     target = settings.warroom_container
+    if not target:
+        # Fail-loud: container targets have no baked-in default — the compose
+        # template must inject WARROOM2_WARROOM_CONTAINER per squad.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"errors": ["WARROOM2_WARROOM_CONTAINER is not configured"]},
+        )
     try:
         # Use `docker restart` via the same socket the docker_client uses.
         import subprocess

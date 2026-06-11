@@ -1,9 +1,7 @@
 """warroom2.files_api — read-only file browser.
 
-Whitelisted roots only:
-- ``/workspace/agents``
-- ``/workspace/project``
-- ``/workspace/agent-bus``
+Whitelisted roots only — derived from settings (squad-home-aware), never
+hardcoded: the agents root, the project root, and the bus directory.
 
 Reject anything else with 400. Reject symlink escapes via real-path check.
 Files >200 KB are truncated with a marker. ``.env``, ``access.json``, and any
@@ -21,15 +19,23 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from .auth import basic_auth_dependency
+from .settings import settings
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-ALLOWED_ROOTS = (
-    "/workspace/agents",
-    "/workspace/project",
-    "/workspace/agent-bus",
+# Whitelist derived from settings — the per-squad container mount points
+# (agents, project, bus dir), never hardcoded paths. Empty (unconfigured)
+# entries are excluded rather than whitelisting "".
+ALLOWED_ROOTS = tuple(
+    root
+    for root in (
+        settings.agents_root,
+        settings.project_root,
+        os.path.dirname(settings.bus_path),
+    )
+    if root
 )
 
 MAX_BYTES = 200 * 1024

@@ -1,1 +1,1 @@
-"""warroom2.tests — placeholder package marker."""
+"""warroom2.tests — package marker."""
