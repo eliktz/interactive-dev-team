@@ -7,11 +7,14 @@
 #   TRELLO_LIST_IDS       — minified JSON mapping paperclip-status → trello-listId,
 #                            e.g. '{"todo":"<id>","in_progress":"<id>","in_review":"<id>","done":"<id>","blocked":"<id>"}'
 #   PAPERCLIP_API_KEY     — or PAPERCLIP_CEO_AGENT_TOKEN once CEO is a real agent
-#   PAPERCLIP_COMPANY_ID  — a951bb35-24a9-412a-bbcc-629c5acae619 for Go-North
+#   PAPERCLIP_COMPANY_ID  — the squad's Paperclip company UUID (from the squad
+#                            .env; e.g. tenant #1's already-public
+#                            a951bb35-24a9-412a-bbcc-629c5acae619)
 #   PAPERCLIP_BASE_URL    — default http://paperclip:3100 (in-cluster service name + correct port)
 #
-# Dedup: card description line 1 must begin with [GON-XX] — the sync script
-# searches all cards for this string and upserts instead of recreating.
+# Dedup: card description line 1 must begin with the Paperclip issue key
+# (e.g. [ABC-12]) — the sync script searches all cards for this string and
+# upserts instead of recreating.
 
 set -euo pipefail
 PAPERCLIP_BASE_URL="${PAPERCLIP_BASE_URL:-http://paperclip:3100}"
@@ -22,7 +25,7 @@ for V in TRELLO_KEY TRELLO_TOKEN TRELLO_BOARD_ID TRELLO_LIST_IDS PAPERCLIP_API_K
 done
 if [[ ${#MISSING[@]} -gt 0 ]]; then
   echo "[ceo-trello-sync] ERROR: missing env vars: ${MISSING[*]}" >&2
-  echo "[ceo-trello-sync] See agents/ceo-gonorth/config/trello.md" >&2
+  echo "[ceo-trello-sync] See the CEO agent's config/trello.md (e.g. agents/<ceo-agent>/config/trello.md)" >&2
   exit 1
 fi
 

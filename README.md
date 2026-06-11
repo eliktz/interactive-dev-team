@@ -23,7 +23,8 @@ Telegram group.
                +--------------+--------------+
                               |
                      Docker: war-room container
-                   [tmux session + ttyd on :7681]
+                  [tmux session, observed via the
+                  warroom2 dashboard (loopback port)]
                    [3 Claude Code agent processes]
                               |
                      Docker network (internal)
@@ -46,57 +47,80 @@ Telegram group.
 git clone https://github.com/YOUR_ORG/interactive-dev-team.git
 cd interactive-dev-team
 
-# 2. Create 3 Telegram bots via @BotFather (see docs/telegram-setup.md)
-#    You need: captain bot, CEO bot, UX designer bot
+# 2. (Optional) Create Telegram bot(s) via @BotFather (see docs/telegram-setup.md)
+#    Agents run CLI-only without a token.
 
-# 3. Configure environment
-cp .env.example .env
-# Edit .env -- fill in ANTHROPIC_API_KEY and the 3 Telegram bot tokens
-# See docs/telegram-setup.md for how to get GONORTH_GROUP_ID
-
-# 4. Run the setup script (clones Paperclip, registers company & agents)
-bash scripts/setup.sh
-
-# 5. Build and start the full stack
-docker compose up -d --build
+# 3. Onboard a squad — scaffolds /srv/squads/<slug>/ (env + config + persona seeds),
+#    generates per-squad secrets, registers the Paperclip company, and brings the
+#    stack up in the right order:
+./squadctl new acme
 ```
 
-Open [http://localhost:7681](http://localhost:7681) to see the war room (tmux in your browser).
-Open [http://localhost:3100](http://localhost:3100) to access the Paperclip management UI.
+See [REPRODUCING.md](REPRODUCING.md) for the full fresh-host walkthrough
+(prerequisites, prompts, what to fill, and how to access the dashboard + Paperclip UI
+through one SSH tunnel: `http://dash.acme.localhost:8800` /
+`http://paperclip.acme.localhost:8800`).
 
 > **Important:** Telegram channels require claude.ai authentication (Pro/Max/Team plan).
-> After first startup, run `docker exec -it <war-room-container> claude` inside the
+> After first startup, run `docker exec -it <slug>-war-room-1 claude` inside the
 > container and type `/login` to authenticate. This is a one-time step — auth tokens
 > persist across restarts via the Docker volume.
 
 ### Updating
 
-Always rebuild after pulling new code:
-
 ```bash
-git pull
-docker compose up -d --build   # rebuilds the image with latest changes
+git pull --ff-only && ./squadctl upgrade --all   # rebuilds once, rolls every squad
 ```
 
-Do **not** use `docker compose restart` — it reuses the old image and will not pick up
-fixes to the Dockerfile or launch.sh.
+Do **not** use `docker compose restart` — it reuses the old image (and does not reload
+env). Use `./squadctl apply <slug> <service>` for env reloads, and never pass
+`--remove-orphans` (see [docs/MULTI_SQUAD.md](docs/MULTI_SQUAD.md)).
+
+## Multiple squads (multi-tenancy)
+
+One repo checkout runs N independent squads on the same host — one compose project per
+squad, all per-squad state (env, config, personas, bus, secrets) in
+`/srv/squads/<slug>/`, **outside the git tree**. `squadctl` is the front door:
+
+```bash
+./squadctl new acme            # onboard a squad end-to-end
+./squadctl ls                  # fleet view
+./squadctl status acme         # health + memory vs limits
+./squadctl logs acme war-room  # follow logs
+./squadctl apply acme war-room # reload env / recreate one service (--no-deps hardwired)
+./squadctl backup acme         # squad home + volume snapshots
+./squadctl destroy acme        # tear down (typed-slug confirmation)
+```
+
+- **Operator manual** (naming, URLs + the single SSH tunnel, day-2 runbook, capacity,
+  hard warnings): [docs/MULTI_SQUAD.md](docs/MULTI_SQUAD.md)
+- **Fresh-host bring-up:** [REPRODUCING.md](REPRODUCING.md)
+- **Migrating a pre-multi-tenancy install:**
+  [deploy/MIGRATION_GONORTH.md](deploy/MIGRATION_GONORTH.md)
 
 ## What You Get
 
 | Service | Port | Description |
 |---------|------|-------------|
-| **ttyd** | `:7681` | Browser-based terminal showing the tmux war room with all 3 agent panes |
-| **Paperclip** | `:3100` | Control plane web UI for managing workers, tasks, and company state |
-| **Telegram** | -- | 3 bots in your Telegram group that you chat with directly |
+| **warroom2 dashboard** | `127.0.0.1:<dash port>` | Tabbed browser dashboard: live agent terminals (PTY), bus feed, agent wizard |
+| **Paperclip** | `127.0.0.1:<paperclip port>` | Control plane web UI for managing workers, tasks, and company state |
+| **Telegram** | -- | The squad's bots in your Telegram group that you chat with directly |
+
+All ports bind loopback only — access is through one SSH tunnel
+(`http://dash.<slug>.localhost:8800`, see [docs/MULTI_SQUAD.md](docs/MULTI_SQUAD.md)).
 
 ## Prerequisites
 
 - **Docker** (with Compose v2) -- [Install Docker Desktop](https://docs.docker.com/get-docker/)
-- **3 Telegram bot tokens** -- see [docs/telegram-setup.md](docs/telegram-setup.md)
+- **Telegram bot token(s)** (optional -- agents run CLI-only without one) -- see
+  [docs/telegram-setup.md](docs/telegram-setup.md)
 - **LLM provider** -- one of:
+  - claude.ai OAuth (default -- log in once after first boot)
   - Anthropic API key (`ANTHROPIC_API_KEY`)
   - AWS Bedrock credentials (`CLAUDE_CODE_USE_BEDROCK=1` + AWS creds)
 - **git** (for cloning Paperclip during setup)
+
+Full list: [REPRODUCING.md](REPRODUCING.md).
 
 ## Architecture
 
@@ -176,55 +200,56 @@ Create bots, configure a group, get chat IDs:
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | Yes* | Anthropic API key |
-| `CLAUDE_CODE_USE_BEDROCK` | Yes* | Set to `1` for AWS Bedrock (alternative to API key) |
-| `AWS_ACCESS_KEY_ID` | If Bedrock | AWS access key |
-| `AWS_SECRET_ACCESS_KEY` | If Bedrock | AWS secret key |
-| `AWS_REGION` | If Bedrock | AWS region (e.g., `us-east-1`) |
-| `CAPTAIN_TELEGRAM_TOKEN` | Yes | Telegram bot token for Captain |
-| `CEO_GONORTH_TELEGRAM_TOKEN` | Yes | Telegram bot token for CEO |
-| `UX_GONORTH_TELEGRAM_TOKEN` | Yes | Telegram bot token for UX Designer |
-| `GONORTH_GROUP_ID` | Yes | Telegram group chat ID |
-| `OPERATOR_TELEGRAM_ID` | No | Your personal Telegram user ID |
-| `CAPTAIN_MODEL` | No | Model for Captain (default: `sonnet`) |
-| `CEO_MODEL` | No | Model for CEO (default: `opus`) |
-| `UX_MODEL` | No | Model for UX Designer (default: `sonnet`) |
-| `TTYD_USERNAME` | No | Basic auth username for ttyd |
-| `TTYD_PASSWORD` | No | Basic auth password for ttyd |
-| `TTYD_PORT` | No | Host port for ttyd (default: `7681`) |
-| `PAPERCLIP_PORT` | No | Host port for Paperclip (default: `3100`) |
-| `PAPERCLIP_SOURCE` | No | Path to Paperclip source (default: `./paperclip`) |
-| `OPENAI_API_KEY` | No | For Paperclip Codex adapter |
+Each squad is configured by its own env file at `/srv/squads/<slug>/.env` (rendered by
+`squadctl new`, never inside the git tree). The authoritative, fully-commented variable
+list is [`deploy/templates/squad.env.template`](deploy/templates/squad.env.template);
+[.env.example](.env.example) is a short signpost. Highlights:
 
-\* One of `ANTHROPIC_API_KEY` or `CLAUDE_CODE_USE_BEDROCK` is required.
+| Variable | Description |
+|----------|-------------|
+| `COMPOSE_PROJECT_NAME` / `SQUAD_HOME` | Squad identity — the slug derives everything |
+| `SQUAD_DASH_PORT` / `SQUAD_PAPERCLIP_PORT` / `SQUAD_PLAYWRIGHT_PORT` | Loopback-only port block |
+| `CAPTAIN_TELEGRAM_TOKEN` | Captain's bot token (other agents' tokens: `$SQUAD_HOME/private/agent-tokens.env`) |
+| `SQUAD_TELEGRAM_GROUP_ID` | Telegram group chat ID (fillable later — see the runbook) |
+| `OPERATOR_TELEGRAM_ID` | Your personal Telegram user ID |
+| `WARROOM2_BASIC_AUTH_*` / `WARROOM2_ADMIN_TOKEN` | Dashboard auth (generated by squadctl) |
+| `BETTER_AUTH_SECRET` / `PAPERCLIP_COMPANY_ID` | Per-squad Paperclip instance |
+| `PROJECT_REPO_URL` / `BITBUCKET_TOKEN` | The project repo the agents work on |
+| `WAR_ROOM_MEM` etc. | Per-service resource ceilings |
 
 ## Project Structure
 
 ```
 interactive-dev-team/
+  squadctl                   # Onboarding + day-2 CLI (new/ls/status/logs/apply/...)
   agents/
-    captain/CLAUDE.md        # Captain persona prompt
-    ceo-gonorth/CLAUDE.md    # CEO persona prompt
-    ux-gonorth/CLAUDE.md     # UX Designer persona prompt
+    captain/CLAUDE.md        # Captain persona prompt (example squad)
+    ceo-gonorth/CLAUDE.md    # CEO persona prompt (example squad)
+    ux-gonorth/CLAUDE.md     # UX Designer persona prompt (example squad)
   companies/
     go-north/
       COMPANY.md             # Company definition (agentcompanies/v1)
       .paperclip.yaml        # Paperclip worker roster
+  deploy/
+    templates/               # squad.env.template + config/persona seeds for squadctl new
+    docker-proxy/            # Opt-in socket-proxy ACLs + empirical test result
+    MIGRATION_GONORTH.md     # Migrating a pre-multi-tenancy install
   scripts/
-    setup.sh                 # One-time setup (clone Paperclip, register company)
+    setup-company.sh         # Paperclip company/worker registration (run by squadctl)
+    secret-scan-pre-push.sh  # Pre-push secret scanner (installed into project clones)
   docs/
+    MULTI_SQUAD.md           # Multi-squad operator manual
     architecture.md          # Detailed architecture
     aws-deployment.md        # AWS deployment guide
     azure-deployment.md      # Azure deployment guide
     customization.md         # How to customize
     gcp-deployment.md        # GCP deployment guide
     telegram-setup.md        # Telegram bot setup
-  docker-compose.yml         # Full stack: war-room + Paperclip
+  REPRODUCING.md             # Fresh-host bring-up walkthrough
+  docker-compose.yml         # Full stack template: war-room + warroom2 + Paperclip + playwright
   Dockerfile                 # War room container
-  launch.sh                  # Container entrypoint (tmux + ttyd)
-  .env.example               # Environment variable template
+  launch.sh                  # Container entrypoint (tmux + agents)
+  .env.example               # Signpost — the real template is deploy/templates/squad.env.template
 ```
 
 ## Created by
@@ -240,4 +265,3 @@ MIT
 
 - **Paperclip**: [https://github.com/paperclipai/paperclip](https://github.com/paperclipai/paperclip)
 - **Claude Code**: [https://docs.anthropic.com/en/docs/claude-code](https://docs.anthropic.com/en/docs/claude-code)
-- **ttyd**: [https://github.com/tsl0922/ttyd](https://github.com/tsl0922/ttyd)
