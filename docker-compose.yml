@@ -218,6 +218,11 @@ services:
       # Admin wizard: token required to invoke /api/admin/wizard/*.
       # Leave empty to disable the wizard (endpoints return 503).
       WARROOM2_ADMIN_TOKEN: ${WARROOM2_ADMIN_TOKEN:-}
+      # Container mount point of the squad instance dir (host ${SQUAD_HOME},
+      # bind-mounted below). WARROOM2_SQUAD_HOME is the canonical name
+      # (warroom2/settings.py reads it first); the legacy WARROOM2_REPO_ROOT
+      # stays as its fallback during the naming transition.
+      WARROOM2_SQUAD_HOME: /workspace/interactive-dev-team
       WARROOM2_REPO_ROOT: /workspace/interactive-dev-team
       # Pass through operator id as default for wizard step 2.
       OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
@@ -289,6 +294,11 @@ services:
       # Regex of container names this squad's dashboard may exec/inspect/
       # start — squad-scoped by default; tenant #1 extends it with the legacy
       # openclaw container (see deploy/templates/squad.env.template).
+      # Consumed by HAPROXY ITSELF at config-parse time (env expansion inside
+      # the mounted cfg — manual §2.3), NOT by the Tecnativa entrypoint sed,
+      # which substitutes only ${BIND_CONFIG}. Unset would fail CLOSED (the
+      # per-container allow never matches); empirically validated by the
+      # squad-scope ACL stage of scripts/test-socket-proxy-exec.sh.
       SQUAD_EXEC_ALLOW_REGEX: ${SQUAD_EXEC_ALLOW_REGEX:-${COMPOSE_PROJECT_NAME:-squad}-[a-z0-9-]+}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro

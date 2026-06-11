@@ -21,11 +21,24 @@ set -euo pipefail
 #      on macOS, `script -qec` on Linux), sends a line, asserts the echoed
 #      round-trip.
 #   4. Same exec WITHOUT a TTY (`docker exec -i`) for comparison.
-#   5. Prints PASS/FAIL per mode and writes the verdict + environment to
+#   5. SQUAD-SCOPE ACL STAGE: starts a SECOND proxy with the repo's custom
+#      deploy/docker-proxy/haproxy.cfg mounted over the image's template path
+#      and SQUAD_EXEC_ALLOW_REGEX in its environment (exactly like the
+#      compose `docker-proxy` service). Asserts the substitution path the
+#      full-diff review questioned: the regex is expanded by HAPROXY ITSELF
+#      at config-parse time (the Tecnativa entrypoint seds ONLY
+#      ${BIND_CONFIG} — see the cfg's ENV SUBSTITUTION header note):
+#        - inspect of the ALLOWED-name target  -> 200 (passes to dockerd)
+#        - inspect of a FOREIGN name           -> 403 (proxy denies; a 404
+#          here would mean the request leaked through to dockerd)
+#        - POST /containers/create             -> 403 (hard deny)
+#        - plain exec round-trip into the allowed target through the ACL cfg
+#   6. Prints PASS/FAIL per stage and writes the verdict + environment to
 #      deploy/docker-proxy/EXEC_TEST_RESULT.md.
 #
-# Verdict: PASS only if BOTH modes round-trip (warroom2 uses both: plain
-# exec_text and PTY attach — see warroom2/warroom2/docker_client.py).
+# Verdict: PASS only if BOTH exec modes round-trip (warroom2 uses both: plain
+# exec_text and PTY attach — see warroom2/warroom2/docker_client.py) AND the
+# squad-scope ACL stage holds.
 # On FAIL the socket-proxy profile stays "do not enable — follow-up"
 # (deploy/templates/squad.env.template); the raw-socket default is unaffected.
 #
@@ -42,6 +55,11 @@ TARGET_IMAGE="${TARGET_IMAGE:-alpine:latest}"
 SUFFIX="$$-$RANDOM"
 TARGET="m5-exec-test-target-$SUFFIX"
 PROXY="m5-exec-test-proxy-$SUFFIX"
+PROXY_ACL="m5-exec-test-proxy-acl-$SUFFIX"
+# Deliberately NEVER created: a 404 on it would mean the request leaked
+# through the ACL to dockerd; the proxy must answer 403 itself.
+DECOY="m5-exec-test-decoy-$SUFFIX"
+ACL_CFG="$PROJECT_DIR/deploy/docker-proxy/haproxy.cfg"
 ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-30}"
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/m5-exec-test.XXXXXX")"
@@ -50,6 +68,7 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/m5-exec-test.XXXXXX")"
 cleanup() {
   docker rm -f "$TARGET" >/dev/null 2>&1 || true
   docker rm -f "$PROXY" >/dev/null 2>&1 || true
+  docker rm -f "$PROXY_ACL" >/dev/null 2>&1 || true
   rm -rf "$WORK_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
@@ -124,6 +143,21 @@ run_plain() {  # $1=DOCKER_HOST (''=raw local socket)  $2=token  $3=outfile
 }
 
 # --- setup --------------------------------------------------------------------
+free_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'
+}
+
+wait_ping() { # wait_ping PORT NAME
+  local p="$1" name="$2" i
+  for i in $(seq 1 30); do
+    if curl -fsS "http://127.0.0.1:$p/_ping" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$name never answered /_ping on 127.0.0.1:$p"
+}
+
 note "pulling images (if needed): $TARGET_IMAGE, $PROXY_IMAGE"
 docker pull -q "$TARGET_IMAGE" >/dev/null 2>&1 || true
 docker pull -q "$PROXY_IMAGE" >/dev/null 2>&1 || true
@@ -131,7 +165,7 @@ docker pull -q "$PROXY_IMAGE" >/dev/null 2>&1 || true
 note "starting throwaway target container: $TARGET"
 docker run -d --name "$TARGET" "$TARGET_IMAGE" sh -c 'sleep 600' >/dev/null
 
-FREE_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+FREE_PORT="$(free_port)"
 note "starting socket proxy: $PROXY (127.0.0.1:$FREE_PORT -> :2375, CONTAINERS=1 EXEC=1 POST=1)"
 docker run -d --name "$PROXY" \
   -e CONTAINERS=1 -e EXEC=1 -e POST=1 \
@@ -140,15 +174,7 @@ docker run -d --name "$PROXY" \
   "$PROXY_IMAGE" >/dev/null
 
 note "waiting for proxy readiness (GET /_ping)"
-ready=""
-for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:$FREE_PORT/_ping" >/dev/null 2>&1; then
-    ready=1
-    break
-  fi
-  sleep 1
-done
-[ -n "$ready" ] || die "proxy never answered /_ping on 127.0.0.1:$FREE_PORT"
+wait_ping "$FREE_PORT" "proxy"
 
 PROXY_URL="tcp://127.0.0.1:$FREE_PORT"
 
@@ -164,7 +190,7 @@ else
 fi
 
 # --- 1) TTY exec through the proxy ---------------------------------------------
-note "TEST 1/2: docker exec -it through proxy ($PROXY_URL), real PTY"
+note "TEST 1/3: docker exec -it through proxy ($PROXY_URL), real PTY"
 TTY_OUT="$WORK_DIR/tty.out"
 TTY_RC=0
 run_with_timeout "$ATTEMPT_TIMEOUT" run_tty "$PROXY_URL" "$TOKEN_TTY" "$TTY_OUT" || TTY_RC=$?
@@ -176,7 +202,7 @@ fi
 note "TTY mode: $TTY_VERDICT$([ "$TTY_RC" = 124 ] && echo ' (timed out after '"$ATTEMPT_TIMEOUT"'s)')"
 
 # --- 2) plain (non-TTY) exec through the proxy ----------------------------------
-note "TEST 2/2: docker exec -i (no TTY) through proxy"
+note "TEST 2/3: docker exec -i (no TTY) through proxy"
 PLAIN_OUT="$WORK_DIR/plain.out"
 PLAIN_RC=0
 run_with_timeout "$ATTEMPT_TIMEOUT" run_plain "$PROXY_URL" "$TOKEN_PLAIN" "$PLAIN_OUT" || PLAIN_RC=$?
@@ -187,8 +213,54 @@ else
 fi
 note "non-TTY mode: $PLAIN_VERDICT$([ "$PLAIN_RC" = 124 ] && echo ' (timed out after '"$ATTEMPT_TIMEOUT"'s)')"
 
+# --- 3) squad-scope ACL stage: the repo cfg + SQUAD_EXEC_ALLOW_REGEX -------------
+# Mirrors the compose `docker-proxy` service exactly: the custom haproxy.cfg
+# is mounted over the image's haproxy.cfg.template (the Tecnativa entrypoint
+# seds ONLY ${BIND_CONFIG} there) and SQUAD_EXEC_ALLOW_REGEX rides the
+# container environment, from which HAPROXY ITSELF expands it at config-parse
+# time (manual §2.3). PING/VERSION/EVENTS come from the image's env defaults,
+# same as in compose.
+[ -f "$ACL_CFG" ] || die "missing ACL config: $ACL_CFG"
+note "TEST 3/3: squad-scope ACL stage (custom cfg, SQUAD_EXEC_ALLOW_REGEX=$TARGET)"
+FREE_PORT_ACL="$(free_port)"
+docker run -d --name "$PROXY_ACL" \
+  -e CONTAINERS=1 -e EXEC=1 -e POST=1 \
+  -e SQUAD_EXEC_ALLOW_REGEX="$TARGET" \
+  -p "127.0.0.1:$FREE_PORT_ACL:2375" \
+  -v "$ACL_CFG":/usr/local/etc/haproxy/haproxy.cfg.template:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  "$PROXY_IMAGE" >/dev/null
+note "waiting for ACL proxy readiness (GET /_ping)"
+wait_ping "$FREE_PORT_ACL" "ACL proxy"
+
+acl_code() { # acl_code METHOD PATH -> HTTP status (000 on connection failure)
+  curl -s -o /dev/null -w '%{http_code}' -X "$1" "http://127.0.0.1:$FREE_PORT_ACL$2" 2>/dev/null || echo 000
+}
+ACL_ALLOW_CODE="$(acl_code GET "/containers/$TARGET/json")"      # expect 200
+ACL_DENY_CODE="$(acl_code GET "/containers/$DECOY/json")"        # expect 403 (404 = leaked)
+ACL_CREATE_CODE="$(acl_code POST "/containers/create")"          # expect 403
+
+TOKEN_ACL="hello-acl-$SUFFIX"
+ACL_OUT="$WORK_DIR/acl.out"
+ACL_RC=0
+run_with_timeout "$ATTEMPT_TIMEOUT" run_plain "tcp://127.0.0.1:$FREE_PORT_ACL" "$TOKEN_ACL" "$ACL_OUT" || ACL_RC=$?
+if grep -q "got:$TOKEN_ACL" "$ACL_OUT"; then
+  ACL_EXEC_VERDICT="PASS"
+else
+  ACL_EXEC_VERDICT="FAIL"
+fi
+
+if [ "$ACL_ALLOW_CODE" = "200" ] && [ "$ACL_DENY_CODE" = "403" ] \
+   && [ "$ACL_CREATE_CODE" = "403" ] && [ "$ACL_EXEC_VERDICT" = "PASS" ]; then
+  ACL_VERDICT="PASS"
+else
+  ACL_VERDICT="FAIL"
+fi
+note "ACL stage: $ACL_VERDICT (allowed inspect=$ACL_ALLOW_CODE foreign inspect=$ACL_DENY_CODE create=$ACL_CREATE_CODE exec=$ACL_EXEC_VERDICT)"
+
 # --- verdict --------------------------------------------------------------------
-if [ "$TTY_VERDICT" = "PASS" ] && [ "$PLAIN_VERDICT" = "PASS" ]; then
+if [ "$TTY_VERDICT" = "PASS" ] && [ "$PLAIN_VERDICT" = "PASS" ] \
+   && [ "$ACL_VERDICT" = "PASS" ]; then
   VERDICT="PASS"
 else
   VERDICT="FAIL"
@@ -213,10 +285,15 @@ cat >"$RESULT_MD" <<EOF
 | Docker server / client | $DOCKER_SERVER / $DOCKER_CLIENT |
 | Proxy image | \`$PROXY_IMAGE\` |
 | Proxy image digest | \`$PROXY_DIGEST\` |
-| Proxy env | \`CONTAINERS=1 EXEC=1 POST=1\` (stock Tecnativa ACLs) |
+| Proxy env (stages 1–2) | \`CONTAINERS=1 EXEC=1 POST=1\` (stock Tecnativa ACLs) |
 | Control (raw socket, PTY) | PASS |
 | \`docker exec -it\` via proxy (real PTY) | $TTY_VERDICT |
 | \`docker exec -i\` via proxy (no TTY) | $PLAIN_VERDICT |
+| Squad-scope ACL stage (repo \`deploy/docker-proxy/haproxy.cfg\`) | $ACL_VERDICT |
+| — allowed-name inspect (expect 200) | $ACL_ALLOW_CODE |
+| — foreign-name inspect (expect 403; 404 = leaked to dockerd) | $ACL_DENY_CODE |
+| — \`POST /containers/create\` (expect 403) | $ACL_CREATE_CODE |
+| — allowed-name \`docker exec -i\` round-trip via ACL cfg | $ACL_EXEC_VERDICT |
 
 Produced by \`scripts/test-socket-proxy-exec.sh\` against LOCAL docker only
 (never the VM). Method: throwaway alpine target + Tecnativa
@@ -225,7 +302,12 @@ docker-socket-proxy publishing \`127.0.0.1:<free-port>:2375\`;
 got:\$x'\` driven through a real PTY (\`script\`), asserting the typed-input
 echo round-trip. Docker exec-attach is an HTTP connection HIJACK
 (\`Upgrade: tcp\`), which HAProxy — the engine inside the proxy — cannot be
-assumed to relay (plan §7.4).
+assumed to relay (plan §7.4). The squad-scope ACL stage runs a second proxy
+with the repo's custom haproxy.cfg mounted over the image template path and
+\`SQUAD_EXEC_ALLOW_REGEX\` in the container environment — validating that
+HAProxy expands the regex at config-parse time (manual §2.3; the Tecnativa
+entrypoint seds only \`\\\${BIND_CONFIG}\`) and that the deny/allow policy
+holds with the expanded value.
 
 ## Implications
 
@@ -237,6 +319,9 @@ if [ "$VERDICT" = "PASS" ]; then
   opt-in hardening (set `WARROOM2_DOCKER_SOCK=/dev/null`,
   `WARROOM2_DOCKER_HOST=tcp://docker-proxy:2375`, add `--profile
   socket-proxy`). See deploy/templates/squad.env.template.
+- The squad-scope ACL stage confirms `SQUAD_EXEC_ALLOW_REGEX` is expanded by
+  HAProxy at config-parse time and enforced: allowed-name endpoints pass,
+  foreign names and `containers/create` are denied by the proxy itself.
 - The raw-socket DEFAULT is unchanged — new squads still boot with the raw
   socket; the proxy stays a per-squad, post-verification opt-in.
 - Re-run this gate after upgrading the docker engine or the proxy image —
@@ -245,9 +330,10 @@ EOF
 else
   cat >>"$RESULT_MD" <<'EOF'
 - The proxy does NOT reliably relay docker exec on this engine/image
-  combination: the `socket-proxy` compose profile is **do not enable —
-  follow-up** (as recorded in deploy/templates/squad.env.template). Enabling
-  it would break the dashboard terminal.
+  combination, OR the squad-scope ACL policy did not hold (see the table for
+  which stage failed): the `socket-proxy` compose profile is **do not enable
+  — follow-up** (as recorded in deploy/templates/squad.env.template).
+  Enabling it would break the dashboard terminal.
 - The raw-socket DEFAULT is unaffected: warroom2 keeps the read-only socket
   mount — the same exposure as the pre-multi-tenancy single-squad stack,
   scoped by squad-only exec-target env, basic-auth, loopback-only ports and
@@ -269,8 +355,16 @@ fi
   echo '```'
   trim_out "$PLAIN_OUT"
   echo '```'
+  echo
+  echo '### Squad-scope ACL stage (custom cfg via ACL proxy)'
+  echo '```'
+  echo "allowed-name inspect : HTTP $ACL_ALLOW_CODE (expect 200)"
+  echo "foreign-name inspect : HTTP $ACL_DENY_CODE (expect 403)"
+  echo "containers/create    : HTTP $ACL_CREATE_CODE (expect 403)"
+  trim_out "$ACL_OUT"
+  echo '```'
 } >>"$RESULT_MD"
 
 note "wrote $RESULT_MD"
-note "VERDICT: $VERDICT (tty=$TTY_VERDICT, non-tty=$PLAIN_VERDICT)"
+note "VERDICT: $VERDICT (tty=$TTY_VERDICT, non-tty=$PLAIN_VERDICT, acl=$ACL_VERDICT)"
 exit 0

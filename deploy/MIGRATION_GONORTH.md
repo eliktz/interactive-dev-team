@@ -91,6 +91,23 @@ Then update the two `reverse_proxy 127.0.0.1:<port>` lines in
 snippet was rendered from the scaffold base. (Any later `./squadctl apply gonorth …`
 re-renders it from `.env` automatically.)
 
+> **`SQUAD_PORT_BASE` vs the pinned ports — no drift to worry about:**
+> `squadctl doctor` validates the ports actually in use — `SQUAD_DASH_PORT` /
+> `SQUAD_PAPERCLIP_PORT` (listen checks + caddy.snippet drift detection); it never
+> reads `SQUAD_PORT_BASE`. The base is only the allocator's bookkeeping
+> (`squadctl new` scans every squad's `SQUAD_PORT_BASE` to pick the next free
+> block), so **leave `SQUAD_PORT_BASE=7600` in place** — it keeps the 7600 block
+> reserved for gonorth — and annotate the deliberate divergence with comment
+> lines (full-line comments only; the `.env` format keeps inline trailing text):
+>
+> ```bash
+> # In /srv/squads/gonorth/.env, above the port block:
+> # Grandfathered ports below intentionally diverge from SQUAD_PORT_BASE=7600
+> # (base+1/+2/+3). doctor validates SQUAD_DASH_PORT/SQUAD_PAPERCLIP_PORT (the
+> # ports actually used); SQUAD_PORT_BASE only reserves this block for future
+> # `squadctl new` allocations.
+> ```
+
 ### 2.2 Fill the rest of `/srv/squads/gonorth/.env` from the live values
 
 Source the values from the old `.env` next to the old compose project and from

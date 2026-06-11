@@ -47,3 +47,28 @@ got:hello-tty-17125-20526
 ```
 got:hello-plain-17125-20526
 ```
+
+## Addendum 2026-06-11 — `SQUAD_EXEC_ALLOW_REGEX` substitution path (review follow-up)
+
+A full-diff review questioned whether `${SQUAD_EXEC_ALLOW_REGEX}` in
+`deploy/docker-proxy/haproxy.cfg` is ever substituted, since the Tecnativa
+entrypoint seds only `${BIND_CONFIG}`. Verified: the substitution is done by
+**HAProxy itself at config-parse time** (configuration manual §2.3 —
+environment variables are expanded during parsing, unquoted and inside double
+quotes; `\$` inside double quotes stays a literal `$`) from the proxy
+container's environment, which the compose `environment:` block provides.
+Empirically confirmed against this exact cfg (post-entrypoint-sed) on a local
+HAProxy 3.4.0:
+
+- allowed-name `exec`/`json`/`start` and `/exec/<id>/start` → pass through;
+  foreign-name endpoints → 403; `containers/create`, `images/*`,
+  `containers/prune` → 403
+- with `SQUAD_EXEC_ALLOW_REGEX` UNSET, the per-container allow regex expands
+  empty and never matches — **fail closed** (403)
+
+`scripts/test-socket-proxy-exec.sh` now includes a third **squad-scope ACL
+stage** that validates this path end-to-end against the real Tecnativa image
+with the repo cfg mounted. The verdict table above PREDATES that stage (it was
+recorded with stock Tecnativa ACLs only) — **re-run the gate before enabling
+the `socket-proxy` profile for any squad** so the recorded verdict covers the
+ACL stage too.
