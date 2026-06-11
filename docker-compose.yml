@@ -12,6 +12,8 @@
 #   paperclip  — Paperclip control plane (worker management + web UI)
 #   playwright — headless browser MCP for QA visual tier
 #   warroom2   — tabbed PTY dashboard (docker-execs into its own squad only)
+#   docker-proxy — OPT-IN (profile `socket-proxy`): filtering socket proxy;
+#                  NOT in the default graph — see the service stanza + §7.4
 #
 # Paperclip source:
 #   Clone Paperclip into ./paperclip before starting:
@@ -219,10 +221,24 @@ services:
       WARROOM2_REPO_ROOT: /workspace/interactive-dev-team
       # Pass through operator id as default for wizard step 2.
       OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
+      # Docker endpoint for the dashboard's `docker exec` calls. DEFAULT is
+      # the in-container raw socket (mounted below) — the terminal must work
+      # on a fresh squad's first boot, unconditionally. The default is the
+      # explicit socket path (NOT empty) because an empty DOCKER_HOST is
+      # version-dependent in the docker CLI. Opt-in hardening: set
+      # WARROOM2_DOCKER_HOST=tcp://docker-proxy:2375 (+ WARROOM2_DOCKER_SOCK=
+      # /dev/null + the `socket-proxy` profile) ONLY if the M5 empirical gate
+      # (scripts/test-socket-proxy-exec.sh) PASSED — see
+      # deploy/docker-proxy/EXEC_TEST_RESULT.md for the recorded verdict.
+      DOCKER_HOST: ${WARROOM2_DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
       # Read-only docker socket so warroom2 can `docker exec` into war-room
       # (+ legacy openclaw). Exec targets above are squad-scoped by env.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # RAW SOCKET IS THE DEFAULT (plan §7.4): exec-attach is an HTTP
+      # connection hijack that a proxy can't be assumed to relay. Under the
+      # opt-in `socket-proxy` profile, point this at /dev/null so warroom2
+      # holds no socket and reaches docker only through docker-proxy.
+      - ${WARROOM2_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
       # Shared bus journal (squad instance dir → container)
       - ${SQUAD_HOME}/bus:/workspace/agent-bus
       # Read-only persona/project access
@@ -244,6 +260,49 @@ services:
         limits:
           cpus: "${WARROOM2_CPUS:-0.5}"
           memory: ${WARROOM2_MEM:-384m}
+
+  # ---------------------------------------------------------------------------
+  # docker-proxy — OPT-IN hardening, ABSENT from the default service graph.
+  #
+  # Filtering HAProxy proxy in front of the docker socket so warroom2 need not
+  # hold the socket itself. Gated behind the `socket-proxy` compose profile
+  # because docker's exec-attach protocol is an HTTP connection HIJACK that
+  # HAProxy cannot be assumed to relay (plan §7.4) — enable ONLY if the M5
+  # empirical gate passed: see deploy/docker-proxy/EXEC_TEST_RESULT.md.
+  #
+  # To enable (per squad, in the squad .env + compose invocation):
+  #   WARROOM2_DOCKER_SOCK=/dev/null
+  #   WARROOM2_DOCKER_HOST=tcp://docker-proxy:2375
+  #   docker compose -p <slug> --env-file <env> --profile socket-proxy up -d
+  #
+  # The socket is mounted HERE only; ACL policy lives in the custom
+  # deploy/docker-proxy/haproxy.cfg (the source of truth — it replaces the
+  # Tecnativa image's env-templated config). CONTAINERS/EXEC/POST kept in env
+  # for operator legibility + parity with the image's documented knobs.
+  docker-proxy:
+    profiles: ["socket-proxy"]
+    image: tecnativa/docker-socket-proxy:latest
+    environment:
+      CONTAINERS: 1
+      EXEC: 1
+      POST: 1
+      # Regex of container names this squad's dashboard may exec/inspect/
+      # start — squad-scoped by default; tenant #1 extends it with the legacy
+      # openclaw container (see deploy/templates/squad.env.template).
+      SQUAD_EXEC_ALLOW_REGEX: ${SQUAD_EXEC_ALLOW_REGEX:-${COMPOSE_PROJECT_NAME:-squad}-[a-z0-9-]+}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mounted over the image's TEMPLATE path: the Tecnativa entrypoint seds
+      # ${BIND_CONFIG} in haproxy.cfg.template into /tmp/haproxy.cfg and runs
+      # that — mounting plain haproxy.cfg would be silently ignored.
+      - ./deploy/docker-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg.template:ro
+    # Joins only this squad's default network — never squad-to-squad reachable.
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${DOCKER_PROXY_CPUS:-0.25}"
+          memory: ${DOCKER_PROXY_MEM:-64m}
 
 volumes:
   war-room-state:

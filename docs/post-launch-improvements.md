@@ -218,9 +218,11 @@ Three MCP servers are configured dynamically in `launch.sh` at container startup
   SESSION=$(curl -v -s -X POST -H "Host: paperclip.tlk.solutions" \
     http://paperclip:3100/api/auth/sign-in/email \
     -H "Content-Type: application/json" \
-    -d '{"email":"admin@gonorth.dev","password":"GoNorth2026!"}' \
+    -d "{\"email\":\"$PAPERCLIP_ADMIN_EMAIL\",\"password\":\"$PAPERCLIP_ADMIN_PASSWORD\"}" \
     2>&1 | grep -oi "session_token=[^;]*" | head -1)
   ```
+  Admin credentials come from the squad's out-of-tree `private/paperclip-ops.md`
+  (exported as env vars) — never commit them to this public repo.
 
 ## Project Repo Clone at Startup
 
