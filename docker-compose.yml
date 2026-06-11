@@ -1,25 +1,38 @@
 # =============================================================================
 # docker-compose.yml — AI Agent War Room + Paperclip Control Plane
 #
+# MULTI-TENANT TEMPLATE (project-per-squad): one repo checkout serves N squads.
+# Each squad = one compose project + one instance dir (SQUAD_HOME) holding all
+# per-squad state (.env, config/, agents/, private/, bus/) OUTSIDE any git tree.
+# Container/network/volume names derive from the project name — never pin a
+# fixed container name here. See deploy/templates/squad.env.template.
+#
 # Services:
-#   war-room  — 3 Claude Code agents in tmux (UI served by warroom2)
-#   paperclip — Paperclip control plane (worker management + web UI)
+#   war-room   — Claude Code agents in tmux (UI served by warroom2)
+#   paperclip  — Paperclip control plane (worker management + web UI)
+#   playwright — headless browser MCP for QA visual tier
+#   warroom2   — tabbed PTY dashboard (docker-execs into its own squad only)
 #
 # Paperclip source:
 #   Clone Paperclip into ./paperclip before starting:
 #     git clone https://github.com/paperclipai/paperclip.git ./paperclip
-#   Or set PAPERCLIP_SOURCE in .env to point to an existing checkout.
+#   Or set PAPERCLIP_SOURCE in the squad .env to point to an existing checkout.
 #
 # Paperclip uses embedded PGlite — no separate Postgres service needed.
 #
-# Usage:
-#   cp .env.example .env   # fill in secrets
-#   docker compose up --build
+# Usage (per squad):
+#   docker compose -p <slug> --env-file /srv/squads/<slug>/.env up -d --build
+# All published ports bind to 127.0.0.1 ONLY — reachable through the SSH
+# tunnel / host Caddy, never the public interface (docker-published ports
+# would otherwise bypass the host firewall).
 # =============================================================================
 
 services:
   war-room:
     build: .
+    # Explicit image tag so N squads share ONE built image (no per-squad
+    # rebuilds; `docker compose ls` stays the fleet view).
+    image: warroom/war-room:latest
     # No published ports: the legacy ttyd web terminal (:7681) was retired
     # 2026-06-10 in favor of war-room 2.0 (warroom2 container). The UI reaches
     # this container's tmux session over the Docker network via docker exec,
@@ -34,18 +47,20 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_REGION: ${AWS_REGION:-}
-      # Telegram
-      CAPTAIN_TELEGRAM_TOKEN: ${CAPTAIN_TELEGRAM_TOKEN}
-      CEO_GONORTH_TELEGRAM_TOKEN: ${CEO_GONORTH_TELEGRAM_TOKEN}
-      UX_GONORTH_TELEGRAM_TOKEN: ${UX_GONORTH_TELEGRAM_TOKEN}
-      GONORTH_GROUP_ID: ${GONORTH_GROUP_ID:-}
+      # Telegram — the captain token rides the squad .env; tokens for any
+      # OTHER agents in the roster land in ${SQUAD_HOME}/private/
+      # agent-tokens.env (mounted below), which launch.sh loads by token_env
+      # name. Empty token = that agent runs CLI-only.
+      CAPTAIN_TELEGRAM_TOKEN: ${CAPTAIN_TELEGRAM_TOKEN:-}
+      SQUAD_TELEGRAM_GROUP_ID: ${SQUAD_TELEGRAM_GROUP_ID:-}
       OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
-      # Models (optional overrides)
+      # Models (optional override for the captain; other agents' models come
+      # from config/agents.json model_env/model_default)
       CAPTAIN_MODEL: ${CAPTAIN_MODEL:-sonnet}
-      CEO_MODEL: ${CEO_MODEL:-opus}
-      UX_MODEL: ${UX_MODEL:-sonnet}
       # Project repo (cloned at startup, used for code + CLAUDE.md overrides)
-      GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
+      PROJECT_REPO_URL: ${PROJECT_REPO_URL:-}
+      # Workspace dir name scripts operate on inside /workspace/project
+      PROJECT_WORKSPACE_NAME: ${PROJECT_WORKSPACE_NAME:-}
       # Bitbucket Cloud (token OR username/password)
       BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
       BITBUCKET_USERNAME: ${BITBUCKET_USERNAME:-}
@@ -54,20 +69,25 @@ services:
       # Trello
       TRELLO_API_KEY: ${TRELLO_API_KEY:-}
       TRELLO_API_TOKEN: ${TRELLO_API_TOKEN:-}
-      # Paperclip connection (Docker network)
+      # Paperclip connection (Docker network — this squad's own paperclip)
       PAPERCLIP_URL: http://paperclip:3100
       PAPERCLIP_COMPANY_ID: ${PAPERCLIP_COMPANY_ID:-}
     volumes:
       - war-room-state:/home/claude/.claude
       # Shared project repo — same volume as Paperclip container
       - project-repo:/workspace/project
-      # Roster + personas bind-mounted (NOT baked) so the warroom2 admin wizard
-      # can mount a new agent and have it appear on the next war-room restart
-      # WITHOUT an image rebuild. The image still COPYs these as a fallback for
+      # Roster + personas bind-mounted from the squad instance dir (NOT baked,
+      # NOT inside a git tree) so the warroom2 admin wizard can mount a new
+      # agent and have it appear on the next war-room restart WITHOUT an image
+      # rebuild — and so agent self-edits can never be committed to this
+      # public repo. The image still COPYs these as a fallback for
       # `docker run` without compose. launch.sh writes generated start.sh +
-      # per-agent .claude/ here (both gitignored).
-      - ./agents:/workspace/agents
-      - ./config:/workspace/config
+      # per-agent .claude/ here.
+      - ${SQUAD_HOME:?SQUAD_HOME is required - squad instance dir, e.g. /srv/squads/SLUG (see deploy/templates/squad.env.template)}/agents:/workspace/agents
+      - ${SQUAD_HOME}/config:/workspace/config
+      # Wizard-managed agent Telegram tokens (KEY=value lines, 0600) — read
+      # by launch.sh at boot via /workspace/private/agent-tokens.env.
+      - ${SQUAD_HOME}/private:/workspace/private:ro
       # SSH key for deploying to Plesk (optional, mount if available)
       - ${DEPLOY_SSH_KEY_PATH:-/dev/null}:/home/claude/.ssh/deploy_key:ro
     depends_on:
@@ -76,11 +96,20 @@ services:
       playwright:
         condition: service_started
     restart: unless-stopped
+    # Ceilings, not reservations — stop one squad's runaway Claude/Chromium
+    # from OOM-killing the host (no swap on the VM). Override per squad in
+    # the squad .env (e.g. gonorth runs WAR_ROOM_MEM=3g for 3 agents + yefet).
+    deploy:
+      resources:
+        limits:
+          cpus: "${WAR_ROOM_CPUS:-2}"
+          memory: ${WAR_ROOM_MEM:-2.5g}
 
   paperclip:
     build:
       context: ${PAPERCLIP_SOURCE:-./paperclip}
       dockerfile: Dockerfile
+    image: warroom/paperclip:latest
     # Wrap the image entrypoint so Playwright system libs (libglib-2.0, libnss3,
     # chromium runtime set) are installed before Paperclip starts. Idempotent —
     # subsequent starts skip the apt install. Needed for QA Lead's qa:visual tier.
@@ -88,7 +117,8 @@ services:
     # Must be set explicitly because overriding entrypoint clears the image CMD.
     command: ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
     ports:
-      - "${PAPERCLIP_PORT:-3100}:3100"
+      # Loopback-only; host Caddy proxies paperclip.<slug>.localhost:8800 here.
+      - "127.0.0.1:${SQUAD_PAPERCLIP_PORT:-3100}:3100"
     environment:
       HOST: "0.0.0.0"
       PAPERCLIP_HOME: "/paperclip"
@@ -103,23 +133,25 @@ services:
       # list (plus whatever it derives from PAPERCLIP_PUBLIC_URL). Must include
       # the compose service name (`paperclip`) and loopback so in-cluster
       # callers (war-room CEO agent, Claude Code) don't hit "Hostname … not
-      # allowed" when they use the internal route. Override via env if needed.
+      # allowed" when they use the internal route. Per squad, also add
+      # paperclip.<slug>.localhost (see deploy/templates/squad.env.template).
       PAPERCLIP_ALLOWED_HOSTNAMES: "${PAPERCLIP_ALLOWED_HOSTNAMES:-paperclip,localhost,127.0.0.1}"
       # Git credentials for Paperclip agents to push code
       BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
-      GONORTH_REPO_URL: ${GONORTH_REPO_URL:-}
+      PROJECT_REPO_URL: ${PROJECT_REPO_URL:-}
+      PROJECT_WORKSPACE_NAME: ${PROJECT_WORKSPACE_NAME:-}
       # Git identity for agent commits
       GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Paperclip Agent}
-      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@gonorth.ai}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@squad.localhost}
       GIT_COMMITTER_NAME: ${GIT_AUTHOR_NAME:-Paperclip Agent}
-      GIT_COMMITTER_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@gonorth.ai}
+      GIT_COMMITTER_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@squad.localhost}
     volumes:
       - paperclip-data:/paperclip
-      - ./companies:/paperclip/companies:ro
-      - ./config/codex-config.toml:/paperclip/.codex/config.toml:ro
+      - ${SQUAD_HOME}/companies:/paperclip/companies:ro
+      - ${SQUAD_HOME}/config/codex-config.toml:/paperclip/.codex/config.toml:ro
       # Shared project repo — Paperclip agents can read/write/push code
       - project-repo:/workspace/project
-      # Shared deploy scripts — Paperclip agents can run deploy-gonorth.sh
+      # Shared deploy scripts (platform code from THIS checkout — not per-squad)
       - ./scripts:/workspace/scripts:ro
       # SSH key for deploying to Plesk (same key as war-room).
       # Host file MUST be `chown 1000:1000` (matches the `node` user inside
@@ -133,25 +165,42 @@ services:
       retries: 30
       start_period: 30s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${PAPERCLIP_CPUS:-1}"
+          memory: ${PAPERCLIP_MEM:-1.25g}
 
   playwright:
     image: mcr.microsoft.com/playwright/mcp
     entrypoint: ["node", "/app/cli.js", "--headless", "--browser", "chromium", "--no-sandbox", "--port", "8931", "--host", "0.0.0.0"]
     ports:
-      - "8931:8931"
+      # Loopback-only (was internet-facing pre-multi-tenancy — closed by design)
+      - "127.0.0.1:${SQUAD_PLAYWRIGHT_PORT:-8931}:8931"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${PLAYWRIGHT_CPUS:-1}"
+          memory: ${PLAYWRIGHT_MEM:-768m}
 
   warroom2:
+    # No fixed container name: compose derives <project>-warroom2-1 per squad.
     build: ./warroom2
-    container_name: interactive-dev-team-warroom2-1
+    image: warroom/warroom2:latest
     ports:
-      - "${WARROOM2_PORT:-7682}:8080"
+      # Loopback-only; host Caddy proxies dash.<slug>.localhost:8800 here.
+      - "127.0.0.1:${SQUAD_DASH_PORT:-7682}:8080"
     environment:
       WARROOM2_BASIC_AUTH_USER: ${WARROOM2_BASIC_AUTH_USER:-}
       WARROOM2_BASIC_AUTH_PASS: ${WARROOM2_BASIC_AUTH_PASS:-}
       WARROOM2_BUS_PATH: /workspace/agent-bus/messages.ndjson
-      WARROOM2_WARROOM_CONTAINER: interactive-dev-team-war-room-1
-      WARROOM2_OPENCLAW_CONTAINER: interactive-dev-team-openclaw-1
+      # Exec targets are SQUAD-SCOPED: derived from the compose project name,
+      # so each dashboard only knows its own squad's containers.
+      WARROOM2_WARROOM_CONTAINER: ${COMPOSE_PROJECT_NAME}-war-room-1
+      # Legacy openclaw (yefet) tab — set SQUAD_OPENCLAW_CONTAINER only for
+      # the squad that owns it (gonorth); empty disables the tab.
+      WARROOM2_OPENCLAW_CONTAINER: ${SQUAD_OPENCLAW_CONTAINER:-}
       WARROOM2_TMUX_SESSION: war-room
       WARROOM2_STATE_DB: /var/lib/warroom2/state.db
       # Admin wizard: token required to invoke /api/admin/wizard/*.
@@ -161,22 +210,30 @@ services:
       # Pass through operator id as default for wizard step 2.
       OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
     volumes:
-      # Read-only docker socket so warroom2 can `docker exec` into war-room + openclaw
+      # Read-only docker socket so warroom2 can `docker exec` into war-room
+      # (+ legacy openclaw). Exec targets above are squad-scoped by env.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Shared bus journal (war-room VM host path → container)
-      - /var/lib/warroom-bus:/workspace/agent-bus
+      # Shared bus journal (squad instance dir → container)
+      - ${SQUAD_HOME}/bus:/workspace/agent-bus
       # Read-only persona/project access
-      - ./agents:/workspace/agents:ro
+      - ${SQUAD_HOME}/agents:/workspace/agents:ro
       - project-repo:/workspace/project:ro
       # Persistent state (scrollback cache, SQLite)
       - warroom2-state:/var/lib/warroom2
-      # RW bind for the admin wizard: lets the wizard mutate launch.sh,
-      # .env, and agents/* on the host. ONLY mounted into warroom2.
-      - /home/ravi/interactive-dev-team:/workspace/interactive-dev-team:rw
+      # RW bind for the admin wizard: lets the wizard mutate config/agents.json,
+      # agents/* and private/agent-tokens.env in the squad instance dir —
+      # NOT the repo checkout, so agent self-edits can never be committed.
+      # ONLY mounted into warroom2.
+      - ${SQUAD_HOME}:/workspace/interactive-dev-team:rw
     depends_on:
       war-room:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${WARROOM2_CPUS:-0.5}"
+          memory: ${WARROOM2_MEM:-384m}
 
 volumes:
   war-room-state:
