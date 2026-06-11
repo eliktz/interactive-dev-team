@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "captain",
+      "name": "Captain",
+      "label": "Captain",
+      "attach": "tmux",
+      "window": 1,
+      "persona_dir": "captain",
+      "model_env": "CAPTAIN_MODEL",
+      "model_default": "sonnet",
+      "token_env": "CAPTAIN_TELEGRAM_TOKEN",
+      "color": "#7fd3ff"
+    }
+  ]
+}

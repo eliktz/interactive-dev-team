@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "url": "http://playwright:8931/mcp"
+    }
+  }
+}

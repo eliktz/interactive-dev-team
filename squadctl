@@ -1,0 +1,858 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# =============================================================================
+# squadctl — onboarding + day-2 CLI for the multi-squad war-room platform
+#
+# One squad = one compose project + one instance dir ($SQUADS_ROOT/<slug>/)
+# holding all per-squad state (.env, config/, agents/, private/, bus/) OUTSIDE
+# any git tree. Everything derives from the slug (see plan §3 naming table):
+# containers <slug>-<service>-1, network <slug>_default, volumes <slug>_<vol>.
+#
+#   ./squadctl new acme          # scaffold + staged bring-up of a new squad
+#   ./squadctl ls                # fleet view
+#   ./squadctl logs acme war-room
+#   ./squadctl destroy acme      # typed-slug confirmation
+#
+# Conventions (clig.dev): prompts only on a TTY, every prompt has a flag,
+# --no-input for scripts, secrets NEVER via argv (ps-visible) — only via
+# hidden prompt or --token-file. Errors go to stderr with a next step.
+#
+# HARD RULES baked into this script:
+#   * The orphan-removal compose flag NEVER appears here: four out-of-project
+#     containers on the platform VM are load-bearing (openclaw, agency-tick,
+#     claim-watcher, deploy-webhook) and a single compose call carrying that
+#     flag would delete them.
+#   * Whenever a single service (or named subset) is brought up, --no-deps is
+#     hardwired so compose never chain-recreates dependency services.
+# =============================================================================
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
+TEMPLATES_DIR="$REPO_ROOT/deploy/templates"
+
+# Port blocks per plan §3: SQUAD_PORT_BASE = 7700 + 100*i;
+# dash = base+1, paperclip = base+2, playwright = base+3.
+PORT_BASE_START=7700
+PORT_BASE_STEP=100
+
+# Load-bearing out-of-project containers `doctor` verifies (platform VM only).
+PLATFORM_CONTAINERS="${SQUADCTL_PLATFORM_CONTAINERS:-openclaw agency-tick claim-watcher deploy-webhook}"
+
+# --- flags (every prompt has one; defaults overridable via env) --------------
+SQUADS_ROOT="${SQUADCTL_SQUADS_ROOT:-/srv/squads}"
+NO_INPUT=0
+NO_UP=0
+KEEP_DATA=0
+FORCE=0
+ALL=0
+PORT_BASE=""
+TOKEN_FILE=""
+GROUP_ID=""
+
+# Copy-pasteable tunnel line; override per host: SQUADCTL_SSH_TARGET=user@vm
+SSH_TARGET="${SQUADCTL_SSH_TARGET:-${USER:-operator}@$(hostname 2>/dev/null || echo your-vm)}"
+
+# --- output helpers ----------------------------------------------------------
+say()  { echo "==> $*"; }
+warn() { echo "squadctl: warning: $*" >&2; }
+die()  { echo "squadctl: error: $*" >&2; exit 1; }
+
+usage() {
+  cat <<USAGE
+squadctl — onboarding + day-2 operations for agent squads (one VM, N squads)
+
+Usage:
+  ./squadctl <verb> [args] [flags]
+
+Verbs:
+  new <slug>             Scaffold $SQUADS_ROOT/<slug>/ + staged bring-up
+  ls                     Fleet view: slug, ports, URLs, health
+  status <slug>          compose ps + live memory vs limits
+  logs <slug> [service]  Follow logs (default: all services, tail 200)
+  restart <slug> [svc]   compose restart (no recreate, no env reload)
+  apply <slug> [service] Re-render derived files + recreate ONE service
+                         (env-reload path; --no-deps hardwired; default: war-room)
+  upgrade <slug>         git ff-only pull + compose build + rolling up
+  upgrade --all          Same, for every squad (images build once)
+  respawn <slug> <win>   Respawn one agent's tmux window inside war-room
+  stop <slug>            compose stop (containers preserved)
+  start <slug>           compose start
+  backup <slug>          Tar squad home + named-volume snapshots into backups/
+  url <slug>             Print squad URLs + the SSH tunnel one-liner
+  doctor                 Platform health: ports, containers, snippets, headroom
+  destroy <slug>         Tear down a squad (typed-slug confirmation)
+  help                   This text
+
+Flags:
+  --no-input             Never prompt; fail (or skip optional input) instead
+  --no-up                'new': scaffold only, skip the staged bring-up
+  --port-base N          'new': pin the port block (default: next free block)
+  --token-file PATH      'new': read the captain Telegram token from a file
+                         (secrets are never accepted as argv — ps-visible)
+  --group-id ID          'new': Telegram group/supergroup ID (non-secret)
+  --squads-root PATH     Instance-dir root (default: /srv/squads)
+  --keep-data            'destroy': keep volumes + instance dir
+  --force                'destroy': skip the typed-slug confirmation;
+                         'new': override the 3-squads-per-VM cap
+  --all                  'upgrade': iterate every squad
+
+Examples:
+  ./squadctl new acme
+  ./squadctl new probe --no-input --no-up --port-base 7900 --squads-root /tmp/squads
+  ./squadctl apply acme war-room      # after editing /srv/squads/acme/.env
+  ./squadctl destroy acme             # asks you to retype "acme"
+USAGE
+}
+
+# --- small utilities ---------------------------------------------------------
+require_slug() {
+  [[ "$1" =~ ^[a-z][a-z0-9-]{1,22}$ ]] \
+    || die "invalid slug '$1' (must match ^[a-z][a-z0-9-]{1,22}\$ — compose-project safe)"
+}
+
+# Globals set by load_squad: SLUG, SQUAD_HOME, SQUAD_ENV
+load_squad() {
+  require_slug "$1"
+  SLUG="$1"
+  SQUAD_HOME="$SQUADS_ROOT/$SLUG"
+  SQUAD_ENV="$SQUAD_HOME/.env"
+  [ -f "$SQUAD_ENV" ] \
+    || die "squad '$SLUG' not found ($SQUAD_ENV missing) — see './squadctl ls'"
+}
+
+# Read one key from a squad .env. NEVER source the file — it holds secrets and
+# arbitrary lines a shell would execute. grep the single key instead.
+env_get() { # env_get FILE KEY -> value (empty when absent)
+  { grep -E "^$2=" "$1" 2>/dev/null || true; } | tail -1 | cut -d= -f2-
+}
+
+# Replace-or-append KEY=VALUE in an env file, preserving mode (awk -> tmp ->
+# cat-over so the 0600 mode and owner survive).
+env_set() { # env_set FILE KEY VALUE
+  local file="$1" key="$2" value="$3" tmp
+  tmp="$file.tmp-$$"
+  if grep -qE "^${key}=" "$file"; then
+    awk -v k="$key" -v v="$value" \
+      'index($0, k"=")==1 {print k"="v; next} {print}' "$file" > "$tmp"
+    cat "$tmp" > "$file"
+    rm -f "$tmp"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
+HAVE_DOCKER=""
+have_docker() {
+  if [ -z "$HAVE_DOCKER" ]; then
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+      HAVE_DOCKER=yes
+    else
+      HAVE_DOCKER=no
+    fi
+  fi
+  [ "$HAVE_DOCKER" = "yes" ]
+}
+
+require_docker() {
+  have_docker || die "docker is required for '$VERB' and is not available on this host"
+}
+
+# Every compose call is squad-scoped: -p <slug> --env-file <squad .env>.
+squad_compose() {
+  docker compose -p "$SLUG" --env-file "$SQUAD_ENV" -f "$COMPOSE_FILE" "$@"
+}
+
+list_squads() {
+  local d
+  for d in "$SQUADS_ROOT"/*/; do
+    [ -f "$d/.env" ] || continue
+    basename "$d"
+  done
+}
+
+count_squads() { list_squads | wc -l | tr -d ' '; }
+
+reload_caddy() {
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet caddy 2>/dev/null; then
+    if systemctl reload caddy 2>/dev/null; then
+      say "caddy reloaded"
+    else
+      warn "caddy reload failed — run manually: systemctl reload caddy"
+    fi
+  else
+    say "note: caddy not reloaded (no active caddy service on this host); on the VM run: systemctl reload caddy"
+  fi
+}
+
+render_caddy_snippet() { # render_caddy_snippet SLUG HOME DASH_PORT PAPERCLIP_PORT
+  local slug_us
+  slug_us=$(printf '%s' "$1" | tr '-' '_')
+  sed -e "s/{{SLUG}}/$1/g" \
+      -e "s/{{SLUG_US}}/$slug_us/g" \
+      -e "s/{{DASH_PORT}}/$3/g" \
+      -e "s/{{PAPERCLIP_PORT}}/$4/g" \
+      "$TEMPLATES_DIR/caddy.snippet.template" > "$2/caddy.snippet"
+}
+
+port_base_taken() { # port_base_taken BASE -> 0 when some squad .env claims it
+  local d b
+  for d in "$SQUADS_ROOT"/*/; do
+    [ -f "$d/.env" ] || continue
+    b=$(env_get "$d/.env" SQUAD_PORT_BASE)
+    [ "$b" = "$1" ] && return 0
+  done
+  return 1
+}
+
+allocate_port_base() {
+  if [ -n "$PORT_BASE" ]; then
+    [[ "$PORT_BASE" =~ ^[0-9]+$ ]] || die "--port-base must be numeric (got '$PORT_BASE')"
+    echo "$PORT_BASE"
+    return 0
+  fi
+  local base=$PORT_BASE_START
+  while port_base_taken "$base"; do
+    base=$((base + PORT_BASE_STEP))
+  done
+  echo "$base"
+}
+
+port_listening() { # port_listening PORT -> 0 when something listens on loopback
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null || return 1
+  exec 3>&- 2>/dev/null || true
+  return 0
+}
+
+wait_paperclip_health() { # wait_paperclip_health PORT
+  local i=0
+  say "Waiting for paperclip health on 127.0.0.1:$1 ..."
+  until curl -sf --max-time 3 "http://127.0.0.1:$1/api/health" >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -gt 60 ]; then
+      die "paperclip did not become healthy within 120s — check: ./squadctl logs $SLUG paperclip"
+    fi
+    sleep 2
+  done
+  say "paperclip healthy"
+}
+
+display_name_for() { # acme-corp -> "Acme Corp"
+  printf '%s' "$1" | tr '-' ' ' \
+    | awk '{for (i = 1; i <= NF; i++) $i = toupper(substr($i,1,1)) substr($i,2)} 1'
+}
+
+print_urls() { # print_urls SLUG DASH_PORT PAPERCLIP_PORT PLAYWRIGHT_PORT
+  echo "    Dashboard:  http://dash.$1.localhost:8800       (basic-auth user/pass: in $SQUADS_ROOT/$1/.env)"
+  echo "    Paperclip:  http://paperclip.$1.localhost:8800"
+  echo "    Tunnel:     ssh -p 22 -L 8800:127.0.0.1:8800 $SSH_TARGET"
+  echo "    Raw ports:  dash 127.0.0.1:$2 · paperclip 127.0.0.1:$3 · playwright 127.0.0.1:$4"
+}
+
+# =============================================================================
+# new <slug> — scaffold + staged bring-up
+# =============================================================================
+cmd_new() {
+  local slug="$1"
+  require_slug "$slug"
+  local home="$SQUADS_ROOT/$slug"
+  local envfile="$home/.env"
+  [ -e "$home" ] && die "squad dir already exists: $home (destroy it first, or pick another slug)"
+  [ -f "$TEMPLATES_DIR/squad.env.template" ] || die "missing template: $TEMPLATES_DIR/squad.env.template"
+  [ -f "$TEMPLATES_DIR/caddy.snippet.template" ] || die "missing template: $TEMPLATES_DIR/caddy.snippet.template"
+
+  # RAM-budget cap (plan §7.1): warn when creating squad #3, refuse #4+ unless --force.
+  local existing
+  existing=$(count_squads)
+  if [ "$existing" -ge 3 ] && [ "$FORCE" -eq 0 ]; then
+    die "this VM is budgeted for max 3 squads ($existing exist under $SQUADS_ROOT); a 4th means a second VM — --force to override"
+  elif [ "$existing" -eq 2 ]; then
+    warn "this will be squad #3 — the VM RAM-budget ceiling (plan §7.1)"
+  fi
+
+  say "Validating slug '$slug' (^[a-z][a-z0-9-]{1,22}\$, not taken)        [ok]"
+
+  local base dash_port pc_port pw_port
+  base=$(allocate_port_base)
+  dash_port=$((base + 1))
+  pc_port=$((base + 2))
+  pw_port=$((base + 3))
+  say "Allocating port block: base $base (scanned $SQUADS_ROOT/*/.env)     [ok]"
+
+  # --- scaffold the instance dir (plan §3 modes) -----------------------------
+  say "Scaffolding $home/"
+  mkdir -p "$home"
+  chmod 750 "$home"
+  mkdir -p "$home/config" "$home/agents" "$home/private" "$home/bus" \
+           "$home/project" "$home/companies" "$home/backups"
+  chmod 700 "$home/private" "$home/backups"
+  chmod 770 "$home/bus"
+
+  # Seed config/ + the starter captain persona from the repo templates.
+  cp -R "$TEMPLATES_DIR/config-seed/." "$home/config/"
+  cp -R "$TEMPLATES_DIR/agents-seed/captain" "$home/agents/captain"
+
+  # Placeholders so the seed's @import targets resolve on first boot.
+  if [ ! -f "$home/private/paperclip-ops.md" ]; then
+    printf '# %s — Paperclip ops notes (out-of-tree, never committed)\n# Put the squad'"'"'s Paperclip admin credential + live agent IDs here.\n' \
+      "$slug" > "$home/private/paperclip-ops.md"
+    chmod 600 "$home/private/paperclip-ops.md"
+  fi
+  if [ ! -f "$home/private/agent-tokens.env" ]; then
+    printf '# KEY=value Telegram tokens for wizard-added agents (loaded by launch.sh)\n' \
+      > "$home/private/agent-tokens.env"
+    chmod 600 "$home/private/agent-tokens.env"
+  fi
+
+  # --- render .env (placeholders -> slug/ports/generated secrets) -----------
+  # Secrets are generated locally and written straight into the 0600 file —
+  # they never transit argv and are never echoed.
+  command -v openssl >/dev/null 2>&1 || die "openssl is required to generate squad secrets"
+  local basic_pass admin_token auth_secret
+  basic_pass=$(openssl rand -hex 16)
+  admin_token=$(openssl rand -hex 24)
+  auth_secret=$(openssl rand -hex 32)
+  sed -e "s|<slug>|$slug|g" \
+      -e "s|^SQUAD_HOME=.*|SQUAD_HOME=$home|" \
+      -e "s|^SQUAD_PORT_BASE=.*|SQUAD_PORT_BASE=$base|" \
+      -e "s|^SQUAD_DASH_PORT=.*|SQUAD_DASH_PORT=$dash_port|" \
+      -e "s|^SQUAD_PAPERCLIP_PORT=.*|SQUAD_PAPERCLIP_PORT=$pc_port|" \
+      -e "s|^SQUAD_PLAYWRIGHT_PORT=.*|SQUAD_PLAYWRIGHT_PORT=$pw_port|" \
+      -e "s|^WARROOM2_BASIC_AUTH_PASS=.*|WARROOM2_BASIC_AUTH_PASS=$basic_pass|" \
+      -e "s|^WARROOM2_ADMIN_TOKEN=.*|WARROOM2_ADMIN_TOKEN=$admin_token|" \
+      -e "s|^BETTER_AUTH_SECRET=.*|BETTER_AUTH_SECRET=$auth_secret|" \
+      "$TEMPLATES_DIR/squad.env.template" > "$envfile"
+  chmod 600 "$envfile"
+  say "Rendered $envfile (0600)"
+  say "Generated: WARROOM2_BASIC_AUTH_PASS, WARROOM2_ADMIN_TOKEN, BETTER_AUTH_SECRET"
+
+  # --- Telegram token + group ID (skippable; secrets never via argv) --------
+  local token=""
+  if [ -n "$TOKEN_FILE" ]; then
+    [ -f "$TOKEN_FILE" ] || die "--token-file not found: $TOKEN_FILE"
+    token=$(head -n 1 "$TOKEN_FILE" | tr -d '[:space:]')
+  elif [ "$NO_INPUT" -eq 0 ] && [ -t 0 ]; then
+    # Hidden input — the token never appears on screen or in shell history.
+    printf "==> Telegram bot token for 'captain' (Enter to skip — agent runs CLI-only): "
+    read -r -s token
+    echo
+  fi
+  if [ -n "$token" ]; then
+    env_set "$envfile" CAPTAIN_TELEGRAM_TOKEN "$token"
+    say "Captain Telegram token written to .env"
+  else
+    say "No captain token — captain runs CLI-only (fill CAPTAIN_TELEGRAM_TOKEN later, then: ./squadctl apply $slug war-room)"
+  fi
+
+  local group_id="$GROUP_ID"
+  if [ -z "$group_id" ] && [ "$NO_INPUT" -eq 0 ] && [ -t 0 ]; then
+    printf "==> Telegram group ID (Enter to skip — fill .env later, then ./squadctl apply %s war-room): " "$slug"
+    read -r group_id
+  fi
+  if [ -n "$group_id" ]; then
+    env_set "$envfile" SQUAD_TELEGRAM_GROUP_ID "$group_id"
+    say "Telegram group ID written to .env"
+  else
+    say "No group ID — Telegram group routing stays off until you fill SQUAD_TELEGRAM_GROUP_ID and run: ./squadctl apply $slug war-room"
+  fi
+
+  # --- caddy snippet ---------------------------------------------------------
+  render_caddy_snippet "$slug" "$home" "$dash_port" "$pc_port"
+  say "Rendered $home/caddy.snippet"
+  reload_caddy
+
+  echo "==> FILL BEFORE FIRST REAL USE (edit $envfile):"
+  echo "      PROJECT_REPO_URL, BITBUCKET_TOKEN  (+ SQUAD_TELEGRAM_GROUP_ID if skipped above)"
+
+  # --- staged bring-up -------------------------------------------------------
+  if [ "$NO_UP" -eq 1 ]; then
+    say "Scaffold complete (--no-up). Bring it up later with:"
+    echo "      docker compose -p $slug --env-file $envfile up -d --build paperclip playwright"
+    echo "      $REPO_ROOT/scripts/setup-company.sh --slug $slug --name \"$(display_name_for "$slug")\" --env-file $envfile"
+    echo "      docker compose -p $slug --env-file $envfile up -d --no-deps war-room warroom2"
+  else
+    SLUG="$slug"
+    SQUAD_ENV="$envfile"
+    staged_bring_up "$pc_port"
+  fi
+
+  echo "==> Squad '$slug' is $([ "$NO_UP" -eq 1 ] && echo scaffolded || echo up)."
+  print_urls "$slug" "$dash_port" "$pc_port" "$pw_port"
+  echo "    Next:       ./squadctl status $slug · mount more agents via the dashboard wizard"
+}
+
+# Staged bring-up — kills the PAPERCLIP_COMPANY_ID chicken-and-egg (plan §5/§9):
+#   stage 1: paperclip + playwright only
+#   stage 2: setup-company.sh registers the company and writes
+#            PAPERCLIP_COMPANY_ID back into the squad .env
+#   stage 3: war-room + warroom2 boot with the ID already in their env —
+#            no post-hoc restart; --no-deps keeps stage 3 from
+#            chain-recreating the paperclip that stage 2 just configured.
+staged_bring_up() { # staged_bring_up PAPERCLIP_PORT
+  require_docker
+  say "Staged bring-up (1/3): paperclip + playwright"
+  squad_compose up -d --build paperclip playwright
+  wait_paperclip_health "$1"
+  say "Staged bring-up (2/3): registering Paperclip company '$SLUG'"
+  "$REPO_ROOT/scripts/setup-company.sh" --slug "$SLUG" \
+    --name "$(display_name_for "$SLUG")" --env-file "$SQUAD_ENV"
+  say "Staged bring-up (3/3): war-room + warroom2 (company ID already in env)"
+  squad_compose up -d --no-deps war-room warroom2
+}
+
+# =============================================================================
+# apply <slug> [service] — re-render derived files + recreate ONE service
+# =============================================================================
+cmd_apply() {
+  load_squad "$1"
+  local svc="${2:-war-room}"
+  require_docker
+
+  # Re-render derived files from the (possibly operator-edited) .env.
+  local dash_port pc_port
+  dash_port=$(env_get "$SQUAD_ENV" SQUAD_DASH_PORT)
+  pc_port=$(env_get "$SQUAD_ENV" SQUAD_PAPERCLIP_PORT)
+  if [ -n "$dash_port" ] && [ -n "$pc_port" ]; then
+    render_caddy_snippet "$SLUG" "$SQUAD_HOME" "$dash_port" "$pc_port"
+    say "Re-rendered $SQUAD_HOME/caddy.snippet"
+    reload_caddy
+  else
+    warn "SQUAD_DASH_PORT/SQUAD_PAPERCLIP_PORT missing from .env — caddy.snippet not re-rendered"
+  fi
+
+  # Late-filled Telegram group activation (M3 flag).
+  #
+  # launch.sh creates each agent's access.json ONLY if missing. A squad that
+  # first booted with SQUAD_TELEGRAM_GROUP_ID empty therefore has minimal
+  # operator-DM-only files ('"groups": {}') persisted in the
+  # <slug>_war-room-state volume at channels/telegram-<persona_dir>/access.json
+  # (the volume backs /home/claude/.claude). If the operator later fills the
+  # group ID and runs `apply`, those stale files would silently keep group
+  # routing dead forever.
+  #
+  # Approach: mount the named state volume into a throwaway alpine and delete
+  # ONLY files whose "groups" map is empty. Rationale:
+  #   * a volume-mounted throwaway works whether war-room is up or not, and
+  #     avoids exec-ing into the running container entirely;
+  #   * the empty-groups check means a populated or hand-merged access.json
+  #     (live allowlists, pending approvals) is never clobbered;
+  #   * launch.sh regenerates the deleted files WITH the group on the
+  #     recreate that follows below.
+  if [ "$svc" = "war-room" ]; then
+    local group_id
+    group_id=$(env_get "$SQUAD_ENV" SQUAD_TELEGRAM_GROUP_ID)
+    if [ -n "$group_id" ]; then
+      say "Group ID present — clearing stale operator-DM-only access.json from ${SLUG}_war-room-state"
+      docker run --rm -v "${SLUG}_war-room-state:/state" alpine:3 sh -c '
+        removed=0
+        for f in /state/channels/telegram-*/access.json; do
+          [ -f "$f" ] || continue
+          if tr -d " \t\n" < "$f" | grep -q "\"groups\":{}"; then
+            rm -f "$f" && echo "    removed stale $f" && removed=1
+          fi
+        done
+        [ "$removed" = "1" ] || echo "    no stale operator-DM-only access.json found (nothing to do)"
+      ' || warn "access.json sweep failed (volume ${SLUG}_war-room-state missing?) — continuing"
+    fi
+  fi
+
+  say "Recreating '$svc' with env reload (up -d --no-deps $svc)"
+  squad_compose up -d --no-deps "$svc"
+  say "Done. Verify with: ./squadctl status $SLUG"
+}
+
+# =============================================================================
+# upgrade <slug> | upgrade --all — plan §6 git-pull ceremony
+# =============================================================================
+upgrade_one() { # upgrade_one SLUG  (images already built)
+  load_squad "$1"
+  local pc_port
+  pc_port=$(env_get "$SQUAD_ENV" SQUAD_PAPERCLIP_PORT)
+  say "[$SLUG] rolling services (--no-deps each stage so nothing chain-recreates)"
+  squad_compose up -d --no-deps paperclip playwright
+  [ -n "$pc_port" ] && wait_paperclip_health "$pc_port"
+  squad_compose up -d --no-deps war-room warroom2
+  say "[$SLUG] upgraded (agents resume via --continue)"
+}
+
+cmd_upgrade() {
+  require_docker
+  # git ceremony: fetch + ff-only on the platform checkout (plan §6). Done
+  # once, regardless of how many squads roll afterwards.
+  if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+    say "git fetch + ff-only pull on $REPO_ROOT"
+    git -C "$REPO_ROOT" fetch --prune \
+      || die "git fetch failed — fix connectivity/credentials, then re-run"
+    git -C "$REPO_ROOT" pull --ff-only \
+      || die "git pull --ff-only failed (diverged checkout?) — reconcile manually, then re-run"
+  else
+    warn "no 'origin' remote on $REPO_ROOT — skipping pull, building from the local tree"
+  fi
+
+  local first_slug
+  if [ "$ALL" -eq 1 ]; then
+    first_slug=$(list_squads | head -1)
+    [ -n "$first_slug" ] || die "no squads found under $SQUADS_ROOT"
+  else
+    [ -n "${1:-}" ] || die "usage: ./squadctl upgrade <slug>  (or: upgrade --all)"
+    first_slug="$1"
+  fi
+
+  # Build once — image tags are shared across squads (warroom/<svc>:latest),
+  # so one build serves the whole fleet.
+  load_squad "$first_slug"
+  say "Building images once (shared warroom/<service>:latest tags)"
+  squad_compose build
+
+  if [ "$ALL" -eq 1 ]; then
+    local s
+    for s in $(list_squads); do
+      upgrade_one "$s"
+    done
+  else
+    upgrade_one "$first_slug"
+  fi
+}
+
+# =============================================================================
+# thin day-2 wrappers
+# =============================================================================
+cmd_ls() {
+  [ -d "$SQUADS_ROOT" ] || die "squads root not found: $SQUADS_ROOT"
+  printf '%-16s %-10s %-42s %s\n' "SLUG" "PORTBASE" "DASHBOARD" "RUNNING"
+  local s base running
+  for s in $(list_squads); do
+    base=$(env_get "$SQUADS_ROOT/$s/.env" SQUAD_PORT_BASE)
+    running="-"
+    if have_docker; then
+      running=$(docker ps --filter "name=^${s}-" --format '{{.Names}}' | wc -l | tr -d ' ')
+    fi
+    printf '%-16s %-10s %-42s %s\n' "$s" "${base:-?}" "http://dash.$s.localhost:8800" "$running"
+  done
+  if have_docker; then
+    echo
+    docker compose ls
+  fi
+}
+
+cmd_status() {
+  load_squad "$1"
+  require_docker
+  squad_compose ps
+  echo
+  local names
+  names=$(docker ps --filter "name=^${SLUG}-" --format '{{.Names}}')
+  if [ -n "$names" ]; then
+    say "memory vs limits:"
+    # Word-splitting is intended: $names is a newline-separated name list.
+    # shellcheck disable=SC2086
+    docker stats --no-stream \
+      --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.CPUPerc}}' $names
+  else
+    warn "no running containers for '$SLUG'"
+  fi
+}
+
+cmd_logs() {
+  load_squad "$1"
+  require_docker
+  shift
+  squad_compose logs -f --tail 200 "$@"
+}
+
+cmd_restart() {
+  load_squad "$1"
+  require_docker
+  shift
+  # Plain restart: same container, NO env reload. To pick up .env edits use:
+  # ./squadctl apply <slug> <service>
+  squad_compose restart "$@"
+}
+
+cmd_respawn() {
+  load_squad "$1"
+  require_docker
+  local window="${2:-}"
+  [ -n "$window" ] || die "usage: ./squadctl respawn <slug> <window>  (tmux window number — see the dashboard tabs)"
+  docker exec "${SLUG}-war-room-1" tmux respawn-window -k -t "war-room:${window}"
+  say "respawned war-room:${window} in ${SLUG}-war-room-1"
+}
+
+cmd_stop() {
+  load_squad "$1"
+  require_docker
+  squad_compose stop
+  say "squad '$SLUG' stopped (containers + volumes preserved; './squadctl start $SLUG' resumes)"
+}
+
+cmd_start() {
+  load_squad "$1"
+  require_docker
+  # NOTE: compose start does NOT reload env_file changes — use apply for that.
+  squad_compose start
+}
+
+cmd_backup() {
+  load_squad "$1"
+  local stamp dest
+  stamp=$(date +%Y%m%d-%H%M%S)
+  dest="$SQUAD_HOME/backups/$stamp"
+  mkdir -p "$dest"
+  chmod 700 "$dest"
+
+  say "Backing up squad home (config, agents, private, .env — bus journal + old backups excluded)"
+  (cd "$SQUAD_HOME" && tar -czf "$dest/squad-home.tar.gz" \
+      --exclude './backups*' --exclude './bus*' .)
+
+  # Volume snapshots: war-room-state carries the Claude OAuth (the thing that
+  # must not be lost), paperclip-data the tenant tasks DB.
+  if have_docker; then
+    local v
+    for v in war-room-state paperclip-data warroom2-state; do
+      if docker volume inspect "${SLUG}_${v}" >/dev/null 2>&1; then
+        say "Snapshotting volume ${SLUG}_${v}"
+        docker run --rm -v "${SLUG}_${v}:/from:ro" -v "$dest:/to" alpine:3 \
+          tar -czf "/to/volume-${v}.tar.gz" -C /from .
+      else
+        warn "volume ${SLUG}_${v} not found — skipped"
+      fi
+    done
+  else
+    warn "docker unavailable — volume snapshots SKIPPED (squad-home tar only)"
+  fi
+
+  say "Backup written to $dest"
+  echo "    NOTE: copying backups off this VM is the operator's job (private/ has no remote yet)."
+}
+
+cmd_url() {
+  load_squad "$1"
+  local dash_port pc_port pw_port
+  dash_port=$(env_get "$SQUAD_ENV" SQUAD_DASH_PORT)
+  pc_port=$(env_get "$SQUAD_ENV" SQUAD_PAPERCLIP_PORT)
+  pw_port=$(env_get "$SQUAD_ENV" SQUAD_PLAYWRIGHT_PORT)
+  print_urls "$SLUG" "${dash_port:-?}" "${pc_port:-?}" "${pw_port:-?}"
+}
+
+# =============================================================================
+# doctor — platform health (plan §5/§6/§7 checks)
+# =============================================================================
+doctor_report() { # doctor_report LEVEL MESSAGE
+  case "$1" in
+    ok)   echo "  [ok]   $2" ;;
+    warn) echo "  [WARN] $2" ;;
+    fail) echo "  [FAIL] $2"; DOCTOR_FAILS=$((DOCTOR_FAILS + 1)) ;;
+  esac
+}
+
+cmd_doctor() {
+  DOCTOR_FAILS=0
+  [ -d "$SQUADS_ROOT" ] || die "squads root not found: $SQUADS_ROOT"
+  say "doctor: squads under $SQUADS_ROOT"
+
+  local s envf dash_port pc_port pw_port p
+  for s in $(list_squads); do
+    echo "[$s]"
+    envf="$SQUADS_ROOT/$s/.env"
+    dash_port=$(env_get "$envf" SQUAD_DASH_PORT)
+    pc_port=$(env_get "$envf" SQUAD_PAPERCLIP_PORT)
+    pw_port=$(env_get "$envf" SQUAD_PLAYWRIGHT_PORT)
+
+    # caddy snippet present + no port drift vs .env
+    if [ -f "$SQUADS_ROOT/$s/caddy.snippet" ]; then
+      if grep -q ":${dash_port}\$\|:${dash_port}[^0-9]" "$SQUADS_ROOT/$s/caddy.snippet" \
+         && grep -q ":${pc_port}\$\|:${pc_port}[^0-9]" "$SQUADS_ROOT/$s/caddy.snippet"; then
+        doctor_report ok "caddy.snippet present, ports match .env ($dash_port/$pc_port)"
+      else
+        doctor_report fail "caddy.snippet port drift vs .env — fix with: ./squadctl apply $s"
+      fi
+    else
+      doctor_report fail "caddy.snippet missing — fix with: ./squadctl apply $s"
+    fi
+
+    # loopback ports listening (only meaningful when the squad is running)
+    if have_docker && [ "$(docker ps -q --filter "name=^${s}-" | wc -l | tr -d ' ')" -gt 0 ]; then
+      for p in "$dash_port" "$pc_port" "$pw_port"; do
+        [ -n "$p" ] || continue
+        if port_listening "$p"; then
+          doctor_report ok "127.0.0.1:$p listening"
+        else
+          doctor_report fail "127.0.0.1:$p NOT listening (squad has running containers)"
+        fi
+      done
+      # container health (collected into a var, NOT a piped while-loop — a
+      # pipe subshell would lose doctor_report's DOCTOR_FAILS increments)
+      local ps_lines unhealthy_count
+      ps_lines=$(docker ps --filter "name=^${s}-" --format '{{.Names}} {{.Status}}')
+      printf '%s\n' "$ps_lines" | sed 's/^/         /'
+      unhealthy_count=$(printf '%s\n' "$ps_lines" | { grep -c 'unhealthy' || true; })
+      if [ "${unhealthy_count:-0}" -gt 0 ]; then
+        doctor_report fail "$unhealthy_count unhealthy container(s) in squad '$s'"
+      else
+        doctor_report ok "all running containers healthy"
+      fi
+      # no 0.0.0.0 binds — docker-published ports bypass the host firewall
+      if docker ps --filter "name=^${s}-" --format '{{.Ports}}' | grep -qF '0.0.0.0'; then
+        doctor_report fail "0.0.0.0 bind detected — every squad port must bind 127.0.0.1 only"
+      else
+        doctor_report ok "no 0.0.0.0 binds"
+      fi
+    else
+      doctor_report warn "squad not running (or docker unavailable) — port/health checks skipped"
+    fi
+  done
+
+  echo "[platform]"
+  # load-bearing out-of-project containers (platform VM only)
+  if have_docker; then
+    local names c
+    names=$(docker ps --format '{{.Names}}')
+    for c in $PLATFORM_CONTAINERS; do
+      if printf '%s\n' "$names" | grep -q -- "$c"; then
+        doctor_report ok "load-bearing container '$c' running"
+      else
+        doctor_report warn "load-bearing container '$c' NOT running (expected on the platform VM; ignore elsewhere)"
+      fi
+    done
+  else
+    doctor_report warn "docker unavailable — container checks skipped"
+  fi
+
+  # disk headroom on the squads root
+  local disk_free
+  disk_free=$(df -Pm "$SQUADS_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [ -n "$disk_free" ]; then
+    if [ "$disk_free" -lt 2048 ]; then
+      doctor_report fail "disk headroom low: ${disk_free}MB free on $SQUADS_ROOT (<2GB)"
+    else
+      doctor_report ok "disk headroom: ${disk_free}MB free on $SQUADS_ROOT"
+    fi
+  fi
+
+  # RAM headroom (Linux only — the VM has no swap, OOM-kill is the failure mode)
+  if command -v free >/dev/null 2>&1; then
+    local ram_avail
+    ram_avail=$(free -m | awk '/^Mem:/ {print $7}')
+    if [ -n "$ram_avail" ] && [ "$ram_avail" -lt 1024 ]; then
+      doctor_report fail "RAM headroom low: ${ram_avail}MB available (<1GB, no swap)"
+    else
+      doctor_report ok "RAM headroom: ${ram_avail:-?}MB available"
+    fi
+  else
+    doctor_report warn "RAM check skipped (no 'free' on this host)"
+  fi
+
+  if [ "$DOCTOR_FAILS" -gt 0 ]; then
+    die "doctor found $DOCTOR_FAILS failing check(s)"
+  fi
+  say "doctor: all checks passed"
+}
+
+# =============================================================================
+# destroy <slug> — typed-slug confirmation; volumes go unless --keep-data
+# =============================================================================
+cmd_destroy() {
+  local slug="$1"
+  require_slug "$slug"
+  local home="$SQUADS_ROOT/$slug"
+  [ -d "$home" ] || die "squad '$slug' not found under $SQUADS_ROOT — nothing to destroy"
+
+  # Confirmation contract (plan §5): interactive runs must retype the exact
+  # slug; scripts must pass --force. --no-input without --force always refuses.
+  if [ "$FORCE" -eq 0 ]; then
+    if [ "$NO_INPUT" -eq 1 ] || [ ! -t 0 ]; then
+      die "refusing to destroy '$slug' without confirmation — retype the slug interactively, or pass --force for scripts"
+    fi
+    printf "This permanently removes squad '%s' (containers%s, %s). Type the squad slug to confirm: " \
+      "$slug" \
+      "$([ "$KEEP_DATA" -eq 1 ] && echo '' || echo ', volumes')" \
+      "$([ "$KEEP_DATA" -eq 1 ] && echo 'instance dir KEPT' || echo "instance dir $home")"
+    local answer
+    read -r answer
+    [ "$answer" = "$slug" ] || die "confirmation mismatch ('$answer' != '$slug') — nothing was touched"
+  fi
+
+  # compose down, squad-scoped. -v only when data goes too. The orphan-removal
+  # flag is deliberately absent from this entire script (see header).
+  if have_docker && [ -f "$home/.env" ]; then
+    SLUG="$slug"
+    SQUAD_ENV="$home/.env"
+    if [ "$KEEP_DATA" -eq 1 ]; then
+      say "compose down (volumes kept — --keep-data)"
+      squad_compose down
+    else
+      say "compose down -v (containers + named volumes)"
+      squad_compose down -v
+    fi
+  else
+    warn "docker unavailable or .env missing — compose resources (if any) were NOT touched"
+  fi
+
+  # Remove the caddy route first so the name stops resolving even if the dir stays.
+  rm -f "$home/caddy.snippet"
+  reload_caddy
+
+  if [ "$KEEP_DATA" -eq 1 ]; then
+    say "Squad '$slug' destroyed (containers down)."
+    echo "    KEPT: instance dir $home (config, agents, private, bus, backups, .env)"
+    echo "    KEPT: named volumes ${slug}_war-room-state, ${slug}_paperclip-data, ${slug}_project-repo, ${slug}_warroom2-state"
+    echo "    Removed: caddy.snippet (route gone)"
+  else
+    rm -rf "$home"
+    say "Squad '$slug' destroyed."
+    echo "    Removed: containers, named volumes, $home, caddy route"
+    echo "    KEPT: shared images (warroom/<service>:latest — other squads use them)"
+  fi
+}
+
+# =============================================================================
+# arg parsing — flags may appear anywhere; positionals collected in order
+# =============================================================================
+VERB=""
+POS1=""
+POS2=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-input)    NO_INPUT=1 ;;
+    --no-up)       NO_UP=1 ;;
+    --keep-data)   KEEP_DATA=1 ;;
+    --force)       FORCE=1 ;;
+    --all)         ALL=1 ;;
+    --port-base)   PORT_BASE="${2:?--port-base needs a value}"; shift ;;
+    --token-file)  TOKEN_FILE="${2:?--token-file needs a value}"; shift ;;
+    --group-id)    GROUP_ID="${2:?--group-id needs a value}"; shift ;;
+    --squads-root) SQUADS_ROOT="${2:?--squads-root needs a value}"; shift ;;
+    -h|--help)     VERB="help" ;;
+    --*)           die "unknown flag: $1 (see './squadctl help')" ;;
+    *)
+      if [ -z "$VERB" ]; then VERB="$1"
+      elif [ -z "$POS1" ]; then POS1="$1"
+      elif [ -z "$POS2" ]; then POS2="$1"
+      else die "too many arguments: '$1' (see './squadctl help')"
+      fi
+      ;;
+  esac
+  shift
+done
+
+[ -n "$VERB" ] || { usage >&2; exit 1; }
+
+case "$VERB" in
+  help)    usage ;;
+  new)     [ -n "$POS1" ] || die "usage: ./squadctl new <slug>";     cmd_new "$POS1" ;;
+  ls)      cmd_ls ;;
+  status)  [ -n "$POS1" ] || die "usage: ./squadctl status <slug>";  cmd_status "$POS1" ;;
+  logs)    [ -n "$POS1" ] || die "usage: ./squadctl logs <slug> [service]"; cmd_logs "$POS1" ${POS2:+"$POS2"} ;;
+  restart) [ -n "$POS1" ] || die "usage: ./squadctl restart <slug> [service]"; cmd_restart "$POS1" ${POS2:+"$POS2"} ;;
+  apply)   [ -n "$POS1" ] || die "usage: ./squadctl apply <slug> [service]"; cmd_apply "$POS1" ${POS2:+"$POS2"} ;;
+  upgrade) cmd_upgrade ${POS1:+"$POS1"} ;;
+  respawn) [ -n "$POS1" ] || die "usage: ./squadctl respawn <slug> <window>"; cmd_respawn "$POS1" ${POS2:+"$POS2"} ;;
+  stop)    [ -n "$POS1" ] || die "usage: ./squadctl stop <slug>";    cmd_stop "$POS1" ;;
+  start)   [ -n "$POS1" ] || die "usage: ./squadctl start <slug>";   cmd_start "$POS1" ;;
+  backup)  [ -n "$POS1" ] || die "usage: ./squadctl backup <slug>";  cmd_backup "$POS1" ;;
+  url)     [ -n "$POS1" ] || die "usage: ./squadctl url <slug>";     cmd_url "$POS1" ;;
+  doctor)  cmd_doctor ;;
+  destroy) [ -n "$POS1" ] || die "usage: ./squadctl destroy <slug>"; cmd_destroy "$POS1" ;;
+  *)       die "unknown verb: '$VERB' (see './squadctl help')" ;;
+esac

@@ -1,0 +1,33 @@
+# =============================================================================
+# caddy.snippet.template — per-squad host-matcher block (plan §2)
+#
+# Rendered by `squadctl new` / `squadctl apply` into
+# $SQUAD_HOME/caddy.snippet and imported by the ONE new site block in the
+# host /etc/caddy/Caddyfile:
+#
+#   http://127.0.0.1:8800 {
+#       import /srv/squads/*/caddy.snippet
+#   }
+#
+# Browsers resolve *.localhost to loopback natively (RFC 6761), and the Host
+# header survives the SSH tunnel — so one loopback listener routes every
+# squad by name:
+#
+#   ssh -p 22 -L 8800:127.0.0.1:8800 <user>@<vm>
+#   http://dash.{{SLUG}}.localhost:8800       -> 127.0.0.1:{{DASH_PORT}}      (warroom2, basic-auth)
+#   http://paperclip.{{SLUG}}.localhost:8800  -> 127.0.0.1:{{PAPERCLIP_PORT}} (Paperclip UI)
+#
+# Squad services publish on 127.0.0.1 ONLY — nothing here is internet-facing.
+# Matcher names use underscores ({{SLUG_US}}): Caddy named matchers must not
+# contain hyphens, slugs may.
+# =============================================================================
+
+@dash_{{SLUG_US}} host dash.{{SLUG}}.localhost
+handle @dash_{{SLUG_US}} {
+    reverse_proxy 127.0.0.1:{{DASH_PORT}}
+}
+
+@paperclip_{{SLUG_US}} host paperclip.{{SLUG}}.localhost
+handle @paperclip_{{SLUG_US}} {
+    reverse_proxy 127.0.0.1:{{PAPERCLIP_PORT}}
+}
