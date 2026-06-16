@@ -38,7 +38,10 @@
         if (k === 'class') el.className = attrs[k];
         else if (k === 'text') el.textContent = attrs[k];
         else if (k.indexOf('on') === 0) el.addEventListener(k.slice(2), attrs[k]);
-        else el.setAttribute(k, attrs[k]);
+        // Skip null/undefined/false so a boolean attr like `disabled: null` is
+        // truly absent — setAttribute('disabled', null) would set disabled="null",
+        // which still disables the element (boolean attrs are presence-based).
+        else if (attrs[k] != null && attrs[k] !== false) el.setAttribute(k, attrs[k]);
       });
     }
     (children || []).forEach(function (c) {
