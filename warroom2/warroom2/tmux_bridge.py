@@ -118,7 +118,16 @@ class TmuxPtySession:
             offset += n
 
     def resize(self, cols: int, rows: int) -> None:
-        """Push a new geometry through to tmux via TIOCSWINSZ on the master."""
+        """Push a new geometry through to the in-container tmux client.
+
+        TIOCSWINSZ on our local PTY master does NOT reach the agent's tmux:
+        ``docker exec -t`` receives no SIGWINCH here, so the in-container exec
+        TTY stays frozen at the startup 80x24 and every browser resize is
+        dropped. We still set the master winsize (harmless), then resize the
+        in-container client's own PTS directly with ``stty`` — the exec user
+        owns that pts, so no root is needed — which delivers SIGWINCH to the
+        tmux client and (with aggressive-resize) the window follows.
+        """
         if self._master is None or self._closed:
             return
         if cols <= 0 or rows <= 0:
@@ -127,6 +136,29 @@ class TmuxPtySession:
             docker_client.set_winsize(self._master, rows, cols)
         except OSError as e:  # pragma: no cover — best effort
             log.debug("set_winsize ignored for %s: %s", self.agent.id, e)
+        if self._linked:
+            try:
+                asyncio.get_running_loop().create_task(
+                    self._resize_container_client(cols, rows)
+                )
+            except RuntimeError:  # no running loop — skip
+                pass
+
+    async def _resize_container_client(self, cols: int, rows: int) -> None:
+        """stty the PTS of the client attached to our grouped session."""
+        linked = self._linked
+        if not linked or self._closed:
+            return
+        script = (
+            f"t=$(tmux list-clients -t {linked} -F '#{{client_tty}}' | head -n1); "
+            f'[ -n "$t" ] && stty -F "$t" rows {int(rows)} cols {int(cols)} || true'
+        )
+        try:
+            await docker_client.exec_text_async(
+                self.agent.container, "sh", "-c", script, timeout=5.0
+            )
+        except Exception as e:  # pragma: no cover — best effort
+            log.debug("container resize ignored for %s: %s", self.agent.id, e)
 
     async def capture_snapshot(self, lines: int = 200) -> str:
         """Best-effort scrollback capture via ``tmux capture-pane``.
