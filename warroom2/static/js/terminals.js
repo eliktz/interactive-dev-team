@@ -132,6 +132,23 @@
     };
     window.WR2.sessions[agentId] = session;
 
+    // Robustly re-fit whenever the host element gains or changes a non-zero
+    // size. A synchronous fit() right after un-hiding a tab measures the
+    // pre-reflow (often zero/default) size, leaving the PTY stuck at 80x24
+    // while the browser renders a different geometry — garbled output plus
+    // redraw churn (worse on slow/remote connections). ResizeObserver fires
+    // after layout for every such case (tab show, panel collapse, window
+    // resize, DPR change); term.onResize then propagates the new geometry to
+    // tmux via the WS resize frame.
+    if (window.ResizeObserver && fit) {
+      session.ro = new ResizeObserver(function () {
+        if (hostDiv.clientWidth > 0 && hostDiv.clientHeight > 0) {
+          try { fit.fit(); } catch (e) {}
+        }
+      });
+      session.ro.observe(hostDiv);
+    }
+
     // Pull initial scrollback from REST and write it before live tail catches up.
     window.WRFetchJSON('/api/agents/' + encodeURIComponent(agentId) + '/scrollback?limit=200')
       .then(function (data) {

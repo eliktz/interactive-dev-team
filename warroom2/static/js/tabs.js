@@ -59,10 +59,16 @@
     }
     window.WR2.setActive(id);
 
-    // Resize xterm to fit the now-visible pane.
+    // Resize xterm to fit the now-visible pane. Deferred to the next frame so
+    // the browser lays out the just-un-hidden pane before we measure it — a
+    // synchronous fit() here reads the pre-reflow size and leaves the terminal
+    // at the wrong geometry. (The per-terminal ResizeObserver also covers this;
+    // this is a fast-path for the common tab-switch.)
     var sess = window.WR2.sessions[id];
     if (sess && sess.fit) {
-      try { sess.fit.fit(); } catch (e) {}
+      window.requestAnimationFrame(function () {
+        try { sess.fit.fit(); } catch (e) {}
+      });
     }
   }
 
