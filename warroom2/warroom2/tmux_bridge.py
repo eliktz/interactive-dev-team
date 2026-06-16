@@ -38,6 +38,39 @@ from . import docker_client
 log = logging.getLogger(__name__)
 
 
+async def _prune_orphan_clients(container: str, base: str, min_age_s: int = 15) -> int:
+    """Kill leftover ``<base>-cli-*`` grouped sessions with no attached client.
+
+    Each browser tab spawns a per-WS grouped session; ``close()`` removes it on
+    a clean disconnect, but a warroom2 restart kills the process without running
+    ``close()``, so those sessions orphan in the container and pile up. A
+    stale/half-built one can wedge a reconnecting tab into a "can't find window"
+    loop. Reaped on each new attach. Only sessions with zero clients AND older
+    than ``min_age_s`` are killed, so a sibling tab mid-connect (its session is
+    briefly client-less right after ``new-session -d``) is never caught.
+    """
+    script = (
+        "now=$(date +%s); "
+        "tmux list-sessions -F '#{session_name} #{session_attached} #{session_created}' "
+        "2>/dev/null | while read n a c; do "
+        f"case \"$n\" in {base}-cli-*) "
+        f"if [ \"$a\" = 0 ] && [ $((now - c)) -gt {int(min_age_s)} ]; then "
+        "tmux kill-session -t \"$n\" && echo \"$n\"; fi ;; esac; done"
+    )
+    try:
+        out = await docker_client.exec_text_async(
+            container, "sh", "-c", script, timeout=5.0
+        )
+        killed = [ln for ln in out.splitlines() if ln.strip()]
+        if killed:
+            log.info("pruned %d orphan tmux session(s) in %s: %s",
+                     len(killed), container, ", ".join(killed))
+        return len(killed)
+    except Exception as e:  # pragma: no cover — best effort
+        log.debug("prune_orphan_clients failed for %s: %s", container, e)
+        return 0
+
+
 class TmuxPtySession:
     """One ``docker exec -i -t tmux attach -t <target>`` PTY per WebSocket.
 
@@ -80,6 +113,10 @@ class TmuxPtySession:
             raise ValueError(f"tmux_target must be 'session:window', got {target!r}")
         linked = f"{base}-cli-{uuid.uuid4().hex[:8]}"
         self._linked = linked
+        # Reap orphaned client sessions (prior warroom2 instances / failed
+        # disconnects) before adding ours, so they can't accumulate and wedge a
+        # tab into a "can't find window" loop.
+        await _prune_orphan_clients(self.agent.container, base)
         # One sh -c invocation: create the linked session, select the desired
         # window on it, then exec into attach (so the attach process replaces
         # the shell — no orphan sh wrapper to clean up).
