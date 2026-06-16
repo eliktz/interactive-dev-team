@@ -69,6 +69,18 @@ def create_app() -> FastAPI:
         redoc_url=None,
     )
 
+    @app.middleware("http")
+    async def _revalidate_frontend_assets(request, call_next):
+        # The SPA shell and its JS/CSS must never be served stale. StaticFiles
+        # sends ETag/Last-Modified but no Cache-Control, so browsers fall back to
+        # heuristic caching and can keep an old wizard.js after a deploy. no-cache
+        # forces revalidation every load; the existing ETag makes the unchanged
+        # case a cheap 304.
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     static_dir = _resolve_static_dir()
     if os.path.isdir(static_dir):
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
