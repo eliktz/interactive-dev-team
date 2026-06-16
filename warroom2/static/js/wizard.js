@@ -289,8 +289,8 @@
   function stepIdentity() {
     var wrap = makeEl('div', { class: 'wz-step' });
     wrap.appendChild(makeEl('h3', { text: '1. Identity' }));
-    wrap.appendChild(input('Slug', 'slug', { placeholder: 'lowercase-dash, e.g. nora', hint: '^[a-z][a-z0-9-]{2,30}$' }));
-    wrap.appendChild(input('Display name', 'display_name', { placeholder: 'Nora' }));
+    wrap.appendChild(input('Slug', 'slug', { placeholder: 'lowercase-dash, e.g. nora', hint: 'Unique id for this agent within the squad. Becomes its container, tmux window and Telegram-channel name and cannot be changed later. Pattern: ^[a-z][a-z0-9-]{2,30}$' }));
+    wrap.appendChild(input('Display name', 'display_name', { placeholder: 'Nora', hint: 'Friendly name shown on the agent\'s dashboard tab and in the roster. Free text, up to 40 characters.' }));
 
     var modelSel = makeEl('select', {
       onchange: function (e) { state.agent.model = e.target.value; }
@@ -300,10 +300,11 @@
       return makeEl('option', attrs);
     }));
     wrap.appendChild(makeEl('div', { class: 'wz-field' }, [
-      makeEl('label', { text: 'Model' }), modelSel
+      makeEl('label', { text: 'Model' }), modelSel,
+      makeEl('div', { class: 'wz-hint', text: 'Which model this agent runs: opus = deepest reasoning (leads/architects), sonnet = balanced default, haiku = fast & cheap, gpt-5.5 = Azure GPT. Drives capability and cost.' })
     ]));
 
-    wrap.appendChild(input('Color (#RRGGBB)', 'color', { type: 'color' }));
+    wrap.appendChild(input('Color (#RRGGBB)', 'color', { type: 'color', hint: 'Accent color for this agent\'s dashboard tab. Cosmetic only — pick any color with the swatch.' }));
     return wrap;
   }
 
@@ -313,7 +314,7 @@
 
     wrap.appendChild(input('Bot token (optional)', 'telegram.token', {
       placeholder: '123456:ABC-DEF...',
-      hint: 'Leave empty for a CLI-only agent (no Telegram)',
+      hint: 'From Telegram @BotFather: send /newbot, then copy the HTTP API token (looks like 123456789:ABC-DEF...). Leave empty for a CLI-only agent with no Telegram. Click "Validate token" to confirm it.',
       onchange: function () { state.botValidation = null; }
     }));
     var validateBtn = makeEl('button', {
@@ -351,8 +352,8 @@
       }
     }
 
-    wrap.appendChild(input('Group ID (optional)', 'telegram.group_id', { placeholder: '-100123...' }));
-    wrap.appendChild(input('Operator ID (defaults to OPERATOR_TELEGRAM_ID)', 'telegram.operator_id'));
+    wrap.appendChild(input('Group ID (optional)', 'telegram.group_id', { placeholder: '-100123...', hint: 'Chat id of the Telegram group the agent posts in — a negative number like -1001234567890. Add the bot to the group, then read the id from @userinfobot or the Bot API getUpdates. Optional.' }));
+    wrap.appendChild(input('Operator ID (defaults to OPERATOR_TELEGRAM_ID)', 'telegram.operator_id', { hint: 'Your personal Telegram numeric user id, for DMs and operator authority. Get it by messaging @userinfobot. Leave empty to inherit the squad OPERATOR_TELEGRAM_ID.' }));
     return wrap;
   }
 
@@ -368,7 +369,8 @@
       return makeEl('option', attrs);
     }));
     wrap.appendChild(makeEl('div', { class: 'wz-field' }, [
-      makeEl('label', { text: 'Template' }), sel
+      makeEl('label', { text: 'Template' }), sel,
+      makeEl('div', { class: 'wz-hint', text: 'Starting persona scaffold copied into the agent\'s files: default = generic worker, dev = engineer, qa = tester. You can edit the agent\'s AGENTS.md / SOUL.md afterward.' })
     ]));
 
     var roleTa = makeEl('textarea', {
@@ -378,7 +380,8 @@
     });
     roleTa.value = state.agent.persona.role || '';
     wrap.appendChild(makeEl('div', { class: 'wz-field' }, [
-      makeEl('label', { text: 'Role' }), roleTa
+      makeEl('label', { text: 'Role' }), roleTa,
+      makeEl('div', { class: 'wz-hint', text: 'One-line description of what this agent does, e.g. "Backend engineer for the payments service". Injected into the persona. Optional.' })
     ]));
 
     var toolsBox = makeEl('div', { class: 'wz-tools' });
@@ -395,6 +398,7 @@
       if (state.agent.persona.tools.indexOf(t) >= 0) cb.checked = true;
       toolsBox.appendChild(makeEl('label', { class: 'wz-tool' }, [cb, document.createTextNode(' ' + t)]));
     });
+    toolsBox.appendChild(makeEl('div', { class: 'wz-hint', text: 'Integrations to wire up: bus = inter-agent message bus, paperclip = task/governance control plane, trello = Trello board sync, bitbucket = repo access. Check what this agent needs.' }));
     wrap.appendChild(toolsBox);
 
     return wrap;
