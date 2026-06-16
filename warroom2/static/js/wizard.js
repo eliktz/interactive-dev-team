@@ -149,7 +149,8 @@
           state.adminToken = e.target.value;
           window.localStorage.setItem(ADMIN_TOKEN_LS_KEY, e.target.value);
         }
-      })
+      }),
+      makeEl('div', { class: 'wz-hint', text: 'Admin secret that authorizes creating/modifying agents — separate from the dashboard login (viewing is not enough). It is this squad\'s WARROOM2_ADMIN_TOKEN, set in /srv/squads/<slug>/.env when the squad was created. Paste once; your browser remembers it.' })
     ]);
     card.appendChild(tokRow);
 
