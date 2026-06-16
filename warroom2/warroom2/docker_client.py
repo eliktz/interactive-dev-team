@@ -127,15 +127,32 @@ async def exec_pty(
     side. We provide our own PTY via ``pty.openpty()``; the slave fd becomes
     docker exec's stdio so the CLI's ``isatty`` check passes even though
     warroom2 itself is daemonized.
+
+    The slave is made the docker CLI's *controlling terminal* (``setsid`` +
+    ``TIOCSCTTY`` in the child). Without that, a later ``TIOCSWINSZ`` on the
+    master delivers no ``SIGWINCH`` to the docker CLI, so it never calls the
+    exec-resize API and the in-container tmux stays frozen at the initial
+    24x80 forever — every browser resize is silently dropped. With it, resizes
+    propagate the whole way: master winsize -> SIGWINCH -> docker resize ->
+    in-container TTY -> tmux.
     """
     master, slave = pty.openpty()
     set_winsize(master, 24, 80)
+
+    def _acquire_controlling_tty() -> None:
+        # Runs in the child after fork, before exec. stdin/stdout/stderr are the
+        # slave PTY (fd 0); become a session leader and claim it as our ctty so
+        # SIGWINCH is delivered here on master-side TIOCSWINSZ.
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
     try:
         proc = await asyncio.create_subprocess_exec(
             "docker", "exec", "-i", "-t",
             "-e", "TERM=xterm-256color",
             container, *cmd,
             stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+            preexec_fn=_acquire_controlling_tty,
         )
     finally:
         os.close(slave)
