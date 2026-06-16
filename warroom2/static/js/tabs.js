@@ -66,9 +66,8 @@
     // this is a fast-path for the common tab-switch.)
     var sess = window.WR2.sessions[id];
     if (sess && sess.fit) {
-      window.requestAnimationFrame(function () {
-        try { sess.fit.fit(); } catch (e) {}
-      });
+      if (window.WRFitSoon) window.WRFitSoon(sess);
+      else window.requestAnimationFrame(function () { try { sess.fit.fit(); } catch (e) {} });
     }
   }
 

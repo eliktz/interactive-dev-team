@@ -31,6 +31,27 @@
     return proto + '//' + location.host + '/ws/agent/' + encodeURIComponent(agentId);
   }
 
+  // Re-fit a terminal across a few frames/ms after it (re)gains a visible box.
+  // A terminal created in a hidden tab has no xterm cell metrics yet, so the
+  // FIRST fit on show reads stale metrics and sticks at 80x24 (measured: an
+  // immediate fit returns 80, a fit ~60ms later returns the correct size). One
+  // fit isn't enough — we retry until layout + metrics have settled. Each fit
+  // is idempotent and, when it changes cols/rows, term.onResize propagates the
+  // new geometry to tmux via the WS resize frame.
+  function fitSoon(session) {
+    if (!session || !session.fit || !session.term) return;
+    var doFit = function () {
+      var host = session.term.element ? session.term.element.parentElement : null;
+      if (host && host.clientWidth > 0 && host.clientHeight > 0) {
+        try { session.fit.fit(); } catch (e) {}
+      }
+    };
+    window.requestAnimationFrame(doFit);
+    setTimeout(doFit, 60);
+    setTimeout(doFit, 200);
+  }
+  window.WRFitSoon = fitSoon;
+
   function mountTerminal(agentId, hostDiv) {
     if (!window.Terminal) {
       hostDiv.textContent = '[xterm.js not loaded]';
@@ -143,11 +164,13 @@
     if (window.ResizeObserver && fit) {
       session.ro = new ResizeObserver(function () {
         if (hostDiv.clientWidth > 0 && hostDiv.clientHeight > 0) {
-          try { fit.fit(); } catch (e) {}
+          fitSoon(session);
         }
       });
       session.ro.observe(hostDiv);
     }
+    // First fit after the element is laid out (covers the tab active at load).
+    fitSoon(session);
 
     // Pull initial scrollback from REST and write it before live tail catches up.
     window.WRFetchJSON('/api/agents/' + encodeURIComponent(agentId) + '/scrollback?limit=200')
