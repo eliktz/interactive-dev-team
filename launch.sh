@@ -502,21 +502,47 @@ ACCESSEOF
   fi
 done
 
+# --- Per-agent subagent allow-list (subagent scoping) ---
+# Maps agent id -> the subagent defs (from /workspace/.claude/agents/<s>.md)
+# that agent should expose. Leaf personas get ONLY their role's subagent;
+# orchestrators get the full set they legitimately dispatch task_briefs to.
+# Fixes the "every agent has Iris's (UX) skills" leak: previously the loop
+# below symlinked EVERY agent's .claude/agents to the one shared pool, so the
+# ux-designer ("Iris flavor") subagent surfaced on Captain, Leo, etc. Any id
+# not listed here falls back to SUBAGENTS_DEFAULT (full set) so a roster edit
+# can never silently strip an orchestrator's needed subagents.
+SUBAGENTS_DEFAULT="backend-dev frontend-dev qa ux-designer"
+subagents_for_agent() {
+  case "$1" in
+    iris)            echo "ux-designer" ;;             # UX/Iris persona only
+    captain|leo)     echo "$SUBAGENTS_DEFAULT" ;;      # orchestrators: full set
+    *)               echo "$SUBAGENTS_DEFAULT" ;;      # unknown id: full set (safe)
+  esac
+}
+
 # --- Per-agent .claude/ dirs so each agent is its OWN project root ---
 # Without this, Claude Code walks up from /workspace/agents/<id> looking
 # for a .claude/ marker and finds /workspace/.claude/ (subagent defs),
 # making /workspace the shared project root. All agents then read/write
 # one shared MEMORY.md pool — Leo's identity claims contaminate Captain
 # and Iris on session start. Fix: each agent has its own .claude/ that
-# shadows the parent's; subagent defs stay shared via symlink.
+# shadows the parent's; subagent defs are symlinked in PER AGENT (scoped by
+# the allow-list above) instead of sharing the whole pool.
 for i in "${!AGENT_IDS[@]}"; do
   AGENT_CLAUDE="/workspace/agents/${AGENT_DIRS[$i]}/.claude"
   mkdir -p "$AGENT_CLAUDE"
-  if [ ! -L "$AGENT_CLAUDE/agents" ] && [ -d /workspace/.claude/agents ]; then
-    ln -sf /workspace/.claude/agents "$AGENT_CLAUDE/agents"
+  if [ -d /workspace/.claude/agents ]; then
+    # If the old whole-pool symlink is present, replace it with a real dir.
+    [ -L "$AGENT_CLAUDE/agents" ] && rm -f "$AGENT_CLAUDE/agents"
+    mkdir -p "$AGENT_CLAUDE/agents"
+    for s in $(subagents_for_agent "${AGENT_IDS[$i]}"); do
+      if [ -f "/workspace/.claude/agents/$s.md" ]; then
+        ln -sf "/workspace/.claude/agents/$s.md" "$AGENT_CLAUDE/agents/$s.md"
+      fi
+    done
   fi
 done
-echo "[war-room] per-agent .claude/ dirs ensured (memory isolation)"
+echo "[war-room] per-agent .claude/ dirs ensured (memory isolation + scoped subagents)"
 
 # --- Generate per-agent start scripts ---
 # These ensure agents always restart with the correct flags.

@@ -21,8 +21,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .agents_api import router as agents_router
 from .auth import basic_auth_dependency
+from .company_api import router as company_router
 from .event_relay import router as events_router
 from .files_api import router as files_router
+from .meta_api import router as meta_router
 from .settings import settings
 from .tmux_bridge import manager as tmux_manager
 from .wizard_api import router as wizard_router
@@ -100,6 +102,8 @@ def create_app() -> FastAPI:
 
     app.include_router(agents_router)
     app.include_router(files_router)
+    app.include_router(company_router)
+    app.include_router(meta_router)
     app.include_router(events_router)
     app.include_router(ws_router)
     app.include_router(wizard_router)

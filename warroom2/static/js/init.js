@@ -66,6 +66,23 @@
 
   var rosterError = null;
 
+  async function applyMeta() {
+    // Fail-soft header label: on success set "<Company> · War Room 2.0";
+    // on failure or empty company, leave the static "WAR ROOM 2.0" text.
+    try {
+      var meta = await window.WRFetchJSON('/api/meta');
+      window.WR2.meta = meta || null;
+      var company = meta && meta.company;
+      if (!company) return;
+      var label = company + ' · War Room 2.0';
+      var title = document.getElementById('wr-title');
+      if (title) title.textContent = label;
+      document.title = label;
+    } catch (e) {
+      console.warn('[init] /api/meta failed; keeping static header', e);
+    }
+  }
+
   async function fetchAgents() {
     try {
       var data = await window.WRFetchJSON('/api/agents');
@@ -264,6 +281,7 @@
     if (window.WRTabs) window.WRTabs.bindKeyboard();
 
     await ensureAuth();
+    await applyMeta();
     var agents = await fetchAgents();
     window.WR2.agents = agents;
     if (window.WRTabs) window.WRTabs.renderTabs(agents);
@@ -274,6 +292,7 @@
       showRosterBanner(rosterError || 'config/agents.json has no agents (see warroom2 logs).');
     }
     if (window.WRFiles) window.WRFiles.mount();
+    if (window.WRCompany) window.WRCompany.mount();
     if (window.WRBus) window.WRBus.mount();
     mountHealth();
   }

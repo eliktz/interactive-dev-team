@@ -12,6 +12,7 @@
 @import SOUL.md
 @import AGENTS.md
 @import TOOLS.md
+@import ../../companies/go-north/COMPANY.md
 @import ../../config/paperclip.md
 
 ## Persisting standing instructions (MANDATORY)

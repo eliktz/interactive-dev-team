@@ -225,6 +225,8 @@ services:
       # Legacy openclaw (yefet) tab — set SQUAD_OPENCLAW_CONTAINER only for
       # the squad that owns it (gonorth); empty disables the tab.
       WARROOM2_OPENCLAW_CONTAINER: ${SQUAD_OPENCLAW_CONTAINER:-}
+      # Optional header display-name override; empty = title-cased squad slug.
+      WARROOM2_COMPANY_NAME: ${WARROOM2_COMPANY_NAME:-}
       WARROOM2_TMUX_SESSION: war-room
       WARROOM2_STATE_DB: /var/lib/warroom2/state.db
       # Admin wizard: token required to invoke /api/admin/wizard/*.

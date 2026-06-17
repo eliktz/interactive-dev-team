@@ -360,6 +360,20 @@ body {
   font-family: var(--font-mono);
 }
 
+/* Company doc (COMPANY.md) — raw markdown in a wrapping <pre>. */
+#company-content {
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  padding: 8px;
+  max-height: 75vh;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-default);
+}
+
 /* Bus log */
 #bus-log {
   font-family: var(--font-mono);

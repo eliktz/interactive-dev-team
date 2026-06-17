@@ -119,8 +119,27 @@
     term.onData(function (d) {
       ws.send({ type: 'input', data: window.WRBase64Encode(d) });
     });
+
+    // Debounce + dedupe the resize frame. fitSoon fires three refits per
+    // trigger and is wired to a ResizeObserver, so a single settled geometry
+    // can emit a burst of identical/near-identical onResize callbacks. Each
+    // frame costs a backend `docker exec stty` (~130ms), which on a high-RTT
+    // remote link floods the shared executor and starves keystroke writes
+    // (perceived ~30s/letter). A 150ms trailing debounce collapses the burst
+    // into at most one frame per settled geometry; the dedupe drops frames
+    // whose cols×rows match the last one actually sent. NOTE: the INITIAL
+    // resize lives in the WS onOpen handler above and is intentionally NOT
+    // routed through here — it must fire immediately so the backend learns the
+    // viewport on connect.
+    var lastSentCols = -1, lastSentRows = -1;
+    var sendResizeDebounced = window.WRDebounce(function (cols, rows) {
+      if (cols === lastSentCols && rows === lastSentRows) return;
+      lastSentCols = cols;
+      lastSentRows = rows;
+      ws.send({ type: 'resize', cols: cols, rows: rows });
+    }, 150);
     term.onResize(function (sz) {
-      ws.send({ type: 'resize', cols: sz.cols, rows: sz.rows });
+      sendResizeDebounced(sz.cols, sz.rows);
     });
 
     // OSC 52 copy: on selection change, copy via terminal-side OSC 52 escape and stash for modal.

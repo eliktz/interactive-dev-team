@@ -88,6 +88,16 @@ class TmuxPtySession:
         self._master: Optional[int] = None
         self._closed = False
         self._linked: Optional[str] = None
+        # Resize coalescing state. Each container resize is a ~130ms `docker
+        # exec stty`; an un-coalesced resize storm spawns one per frame and
+        # starves keystroke writes on the shared executor. We keep at most one
+        # exec in flight per session: a resize arriving while one is running
+        # only updates the pending target, which the in-flight task picks up on
+        # a trailing-edge pass. ``_applied_geom`` tracks the last geometry we
+        # actually pushed so unchanged resizes are skipped entirely.
+        self._pending_geom: Optional[tuple[int, int]] = None
+        self._applied_geom: Optional[tuple[int, int]] = None
+        self._resize_inflight = False
 
     async def attach(self) -> None:
         """Spawn the docker-exec tmux-attach subprocess and capture PTY master.
@@ -173,13 +183,41 @@ class TmuxPtySession:
             docker_client.set_winsize(self._master, rows, cols)
         except OSError as e:  # pragma: no cover — best effort
             log.debug("set_winsize ignored for %s: %s", self.agent.id, e)
-        if self._linked:
-            try:
-                asyncio.get_running_loop().create_task(
-                    self._resize_container_client(cols, rows)
-                )
-            except RuntimeError:  # no running loop — skip
-                pass
+        if not self._linked:
+            return
+        # Coalesce: record the latest target and only spawn a new exec if none
+        # is in flight. An in-flight task will pick up this geometry on its
+        # trailing pass, so the FINAL geometry is always applied without
+        # flooding the executor with one docker exec per frame.
+        self._pending_geom = (cols, rows)
+        if self._resize_inflight:
+            return
+        try:
+            asyncio.get_running_loop().create_task(self._resize_drain())
+        except RuntimeError:  # no running loop — skip
+            pass
+
+    async def _resize_drain(self) -> None:
+        """Apply pending geometry one exec at a time until the queue settles.
+
+        Loops trailing-edge: after each ``stty`` completes, if a newer geometry
+        arrived meanwhile (and differs from what was applied), apply that too.
+        Guarantees the last requested geometry is the one finally applied while
+        keeping at most one ``docker exec`` in flight per session.
+        """
+        if self._resize_inflight:
+            return
+        self._resize_inflight = True
+        try:
+            while not self._closed:
+                target = self._pending_geom
+                if target is None or target == self._applied_geom:
+                    break
+                self._pending_geom = None
+                await self._resize_container_client(target[0], target[1])
+                self._applied_geom = target
+        finally:
+            self._resize_inflight = False
 
     async def _resize_container_client(self, cols: int, rows: int) -> None:
         """stty the PTS of the client attached to our grouped session."""

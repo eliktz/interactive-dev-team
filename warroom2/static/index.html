@@ -7,9 +7,9 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2358a6ff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='14' rx='2'/><path d='M7 20h10'/><path d='M10 16v4'/><path d='M14 16v4'/></svg>">
 
 <link rel="stylesheet" href="/static/vendor/xterm.css">
-<link rel="stylesheet" href="/static/css/warroom2.css?v=20260616e">
-<link rel="stylesheet" href="/static/css/tabs.css?v=20260616e">
-<link rel="stylesheet" href="/static/css/wizard.css?v=20260616e">
+<link rel="stylesheet" href="/static/css/warroom2.css?v=20260617c">
+<link rel="stylesheet" href="/static/css/tabs.css?v=20260617c">
+<link rel="stylesheet" href="/static/css/wizard.css?v=20260617c">
 
 <script src="/static/vendor/xterm.js"></script>
 <script src="/static/vendor/addon-fit.js"></script>
@@ -17,32 +17,35 @@
 
 <!-- ?v= asset version: bump on every frontend change so browsers fetch the new
      file instead of a stale cached copy (paired with the no-cache header in app.py). -->
-<script src="/static/js/helpers.js?v=20260616e"></script>
-<script src="/static/js/state.js?v=20260616e"></script>
-<script src="/static/js/ws_client.js?v=20260616e"></script>
-<script src="/static/js/tabs.js?v=20260616e"></script>
-<script src="/static/js/terminals.js?v=20260616e"></script>
-<script src="/static/js/copy_modal.js?v=20260616e"></script>
-<script src="/static/js/files.js?v=20260616e"></script>
-<script src="/static/js/bus.js?v=20260616e"></script>
-<script src="/static/js/wizard.js?v=20260616e"></script>
-<script src="/static/js/init.js?v=20260616e"></script>
+<script src="/static/js/helpers.js?v=20260617c"></script>
+<script src="/static/js/state.js?v=20260617c"></script>
+<script src="/static/js/ws_client.js?v=20260617c"></script>
+<script src="/static/js/tabs.js?v=20260617c"></script>
+<script src="/static/js/terminals.js?v=20260617c"></script>
+<script src="/static/js/copy_modal.js?v=20260617c"></script>
+<script src="/static/js/files.js?v=20260617c"></script>
+<script src="/static/js/company.js?v=20260617c"></script>
+<script src="/static/js/bus.js?v=20260617c"></script>
+<script src="/static/js/wizard.js?v=20260617c"></script>
+<script src="/static/js/init.js?v=20260617c"></script>
 </head>
 <body>
 <div id="app">
   <div id="left-panel">
     <div id="left-header">
-      <span class="title">WAR ROOM 2.0</span>
+      <span class="title" id="wr-title">WAR ROOM 2.0</span>
       <button id="btn-mount-agent" class="nav-mount-agent" title="Mount new agent (wizard)">+ Mount agent</button>
       <button id="btn-collapse" title="Collapse">&laquo;</button>
     </div>
     <nav id="admin-nav">
       <button data-section="files" class="active">Files</button>
+      <button data-section="company">Company</button>
       <button data-section="bus">Bus log</button>
       <button data-section="health">Health</button>
     </nav>
     <div id="admin-panel">
       <div id="files-section" class="admin-section active"></div>
+      <div id="company-section" class="admin-section"></div>
       <div id="bus-section" class="admin-section"></div>
       <div id="health-section" class="admin-section"></div>
     </div>

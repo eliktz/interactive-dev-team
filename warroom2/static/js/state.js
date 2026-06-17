@@ -11,6 +11,7 @@
     basicAuthCreds: null,   // base64("user:pass") or null
     lastCopy: '',           // last selected text — fallback for the copy modal
     sseSource: null,        // shared EventSource for bus log
+    meta: null,             // { slug, company } from /api/meta (header label)
   };
 
   window.WR2.setActive = function (id) {
