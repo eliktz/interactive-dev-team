@@ -45,6 +45,7 @@
   function switchTo(id) {
     var bar = document.getElementById('tab-bar');
     if (!bar) return;
+    var prevActiveId = window.WR2 && window.WR2.activeTabId;
     var tabs = bar.querySelectorAll('.tab');
     tabs.forEach(function (t) {
       t.classList.toggle('active', t.dataset.agentId === id);
@@ -58,6 +59,21 @@
       });
     }
     window.WR2.setActive(id);
+
+    // Focused-streaming: pause the agent we're leaving, resume the one we open.
+    // focus:false stops the backend from streaming that agent's output to the
+    // browser; focus:true resumes it and triggers a server-side repaint. This
+    // keeps a busy multi-agent squad streaming only ONE terminal so the main
+    // thread stays free for keystrokes.
+    try {
+      var sessions = window.WR2.sessions || {};
+      if (prevActiveId && prevActiveId !== id && sessions[prevActiveId] && sessions[prevActiveId].ws) {
+        sessions[prevActiveId].ws.send({ type: 'focus', active: false });
+      }
+      if (sessions[id] && sessions[id].ws) {
+        sessions[id].ws.send({ type: 'focus', active: true });
+      }
+    } catch (e) {}
 
     // Resize xterm to fit the now-visible pane. Deferred to the next frame so
     // the browser lays out the just-un-hidden pane before we measure it — a

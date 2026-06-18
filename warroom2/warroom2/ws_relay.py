@@ -59,6 +59,11 @@ async def _pump_pty_to_ws(ws: WebSocket, agent_id: str, session) -> None:
             chunk = await session.read()
             if not chunk:
                 break
+            # Focused-streaming: keep draining the PTY (so tmux never blocks) but
+            # don't forward output for an unfocused agent. The browser repaints on
+            # resume via request_redraw(), so the discarded interim output is fine.
+            if getattr(session, "paused", False):
+                continue
             seq += 1
             ok = await _send_json_safely(
                 ws, {"type": "data", "data": _b64(chunk), "seq": seq}
@@ -94,6 +99,17 @@ async def _pump_ws_to_pty(ws: WebSocket, agent_id: str, session) -> None:
                 rows = int(frame.get("rows") or 0)
                 if cols > 0 and rows > 0:
                     session.resize(cols, rows)
+            elif ftype == "focus":
+                # Pause/resume this agent's output stream. On resume, force a
+                # redraw so the newly-shown tab repaints its current screen.
+                active = bool(frame.get("active"))
+                was_paused = getattr(session, "paused", False)
+                session.paused = not active
+                if active and was_paused:
+                    try:
+                        await session.request_redraw()
+                    except Exception:
+                        pass
             elif ftype == "ack":
                 continue
             else:

@@ -98,6 +98,14 @@ class TmuxPtySession:
         self._pending_geom: Optional[tuple[int, int]] = None
         self._applied_geom: Optional[tuple[int, int]] = None
         self._resize_inflight = False
+        # Focused-streaming: when paused, the pty→ws pump keeps draining the PTY
+        # (so tmux never blocks) but does NOT forward output to the browser. The
+        # client sends a ``focus`` frame to pause/resume; on resume we force a
+        # tmux redraw so the newly-shown tab repaints its current screen. This
+        # lets a multi-agent squad stream only the ONE focused agent, freeing the
+        # browser's single main thread (5 live streams were starving keystroke
+        # handling on the busy squad).
+        self.paused = False
 
     async def attach(self) -> None:
         """Spawn the docker-exec tmux-attach subprocess and capture PTY master.
@@ -234,6 +242,28 @@ class TmuxPtySession:
             )
         except Exception as e:  # pragma: no cover — best effort
             log.debug("container resize ignored for %s: %s", self.agent.id, e)
+
+    async def request_redraw(self) -> None:
+        """Force tmux to repaint our attached client (used on focus resume).
+
+        While paused, the pty→ws pump discards output, so the browser's xterm is
+        stale by the time the tab is shown again. ``tmux refresh-client`` forces
+        a full redraw of the client's current screen, which flows through the PTY
+        and the (now-unpaused) pump back to the browser.
+        """
+        linked = self._linked
+        if not linked or self._closed:
+            return
+        script = (
+            f"t=$(tmux list-clients -t {linked} -F '#{{client_tty}}' | head -n1); "
+            f'[ -n "$t" ] && tmux refresh-client -t "$t" || true'
+        )
+        try:
+            await docker_client.exec_text_async(
+                self.agent.container, "sh", "-c", script, timeout=5.0
+            )
+        except Exception as e:  # pragma: no cover — best effort
+            log.debug("request_redraw ignored for %s: %s", self.agent.id, e)
 
     async def capture_snapshot(self, lines: int = 200) -> str:
         """Best-effort scrollback capture via ``tmux capture-pane``.

@@ -88,6 +88,15 @@
           var cols = term.cols, rows = term.rows;
           ws.send({ type: 'resize', cols: cols, rows: rows });
         } catch (e) {}
+        // Focused-streaming: tell the backend whether this agent is the one the
+        // user is viewing. Unfocused agents are paused server-side so a busy
+        // multi-agent squad only streams ONE terminal to the browser, keeping the
+        // single main thread free for keystrokes. (activeTabId is set by the
+        // initial switchTo before this async onOpen fires.)
+        try {
+          var isActive = window.WR2 && window.WR2.activeTabId === agentId;
+          ws.send({ type: 'focus', active: !!isActive });
+        } catch (e) {}
       },
       onClose: function () {
         if (window.WRTabs) window.WRTabs.setTabStatus(agentId, 'disconnected');
