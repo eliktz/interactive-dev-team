@@ -85,6 +85,11 @@
       if (window.WRFitSoon) window.WRFitSoon(sess);
       else window.requestAnimationFrame(function () { try { sess.fit.fit(); } catch (e) {} });
     }
+    // Move keyboard focus into the now-visible terminal so keystrokes go to the
+    // agent you're looking at (not the tab bar or a previously-focused pane).
+    if (sess && sess.term && sess.term.focus) {
+      try { sess.term.focus(); } catch (e) {}
+    }
   }
 
   function setTabStatus(id, status) {

@@ -71,6 +71,36 @@ async def _prune_orphan_clients(container: str, base: str, min_age_s: int = 15) 
         return 0
 
 
+async def reap_all_client_sessions(container: str, base: str) -> int:
+    """Kill ALL ``<base>-cli-*`` grouped sessions unconditionally.
+
+    Called once at warroom2 startup. Any client session present then is a
+    leftover from a PRIOR warroom2 instance (no WebSocket is connected to the
+    freshly-started process yet). Such leftovers stay ``session_attached==1``
+    because their orphaned ``docker exec tmux attach`` process is still alive,
+    so the age/detached guard in ``_prune_orphan_clients`` never reaps them and
+    they pile up — corrupting window geometry. At startup it is always safe to
+    drop every one; live tabs reconnect and recreate their own right after.
+    """
+    script = (
+        "tmux list-sessions -F '#{session_name}' 2>/dev/null | "
+        f"while read n; do case \"$n\" in {base}-cli-*) "
+        "tmux kill-session -t \"$n\" 2>/dev/null && echo \"$n\";; esac; done"
+    )
+    try:
+        out = await docker_client.exec_text_async(
+            container, "sh", "-c", script, timeout=8.0
+        )
+        killed = [ln for ln in out.splitlines() if ln.strip()]
+        if killed:
+            log.info("startup-reaped %d leftover tmux client session(s) in %s",
+                     len(killed), container)
+        return len(killed)
+    except Exception as e:  # pragma: no cover — best effort
+        log.debug("reap_all_client_sessions failed for %s: %s", container, e)
+        return 0
+
+
 class TmuxPtySession:
     """One ``docker exec -i -t tmux attach -t <target>`` PTY per WebSocket.
 

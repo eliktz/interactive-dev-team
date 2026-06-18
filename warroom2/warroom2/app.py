@@ -52,6 +52,24 @@ async def _lifespan(app: FastAPI):
         settings.bus_path,
         settings.tmux_session,
     )
+    # Reap leftover tmux client sessions from a previous warroom2 instance.
+    # They survive a restart attached-but-orphaned and would otherwise pile up
+    # and corrupt window geometry; no WS is connected yet, so dropping all is
+    # safe. Live tabs reconnect and recreate their own immediately after.
+    try:
+        from .agent_registry import list_agents
+        from .tmux_bridge import reap_all_client_sessions
+        seen = set()
+        for a in list_agents():
+            if a.attach == "tmux" and a.tmux_target and a.container:
+                base = a.tmux_target.split(":", 1)[0]
+                key = (a.container, base)
+                if key in seen:
+                    continue
+                seen.add(key)
+                await reap_all_client_sessions(a.container, base)
+    except Exception as e:  # best effort — never block startup
+        log.warning("startup client-session reap skipped: %s", e)
     yield
     await tmux_manager.close_all()
     log.info("warroom2 stopped")

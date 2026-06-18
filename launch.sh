@@ -677,6 +677,13 @@ else
     -n "${PANE_LABELS[0]}" \
     "/workspace/agents/${AGENT_DIRS[0]}/start.sh"
   tmux set-option -t "$SESSION" remain-on-exit on
+  # Size each window to the LARGEST client viewing it (with aggressive-resize),
+  # not the latest. Each browser tab attaches as its own grouped client; a stale
+  # or hidden client at the default 80x24 must NOT be allowed to shrink the
+  # window out from under the client actually viewing it — that desyncs xterm's
+  # geometry from tmux and makes Claude's cursor-positioned redraws land at the
+  # wrong coordinates (invisible typing). "largest" lets the real viewer win.
+  tmux set-option -t "$SESSION" window-size largest
   # Window indices are OWNED by agents.json — do NOT renumber, trust the file.
   # tmux.conf sets renumber-windows on globally (legacy), which would shift
   # indices if a window is ever killed and silently break the warroom2

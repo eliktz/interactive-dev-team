@@ -44,6 +44,10 @@
       var host = session.term.element ? session.term.element.parentElement : null;
       if (host && host.clientWidth > 0 && host.clientHeight > 0) {
         try { session.fit.fit(); } catch (e) {}
+        // Force a full repaint after fitting. A terminal that mounted while
+        // hidden (or whose render loop stalled) can have a correct buffer that
+        // never painted; refresh() guarantees the visible rows are drawn.
+        try { session.term.refresh(0, session.term.rows - 1); } catch (e) {}
       }
     };
     window.requestAnimationFrame(doFit);
