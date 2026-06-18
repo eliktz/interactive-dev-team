@@ -59,12 +59,19 @@
     }
     window.WR2.setActive(id);
 
+    // Flush any output buffered while this tab was hidden (active-only
+    // rendering): hidden terminals don't write to xterm live, so replay the
+    // buffer now that it's visible, before fitting.
+    var sess = window.WR2.sessions[id];
+    if (sess && typeof sess.flush === 'function') {
+      try { sess.flush(); } catch (e) {}
+    }
+
     // Resize xterm to fit the now-visible pane. Deferred to the next frame so
     // the browser lays out the just-un-hidden pane before we measure it — a
     // synchronous fit() here reads the pre-reflow size and leaves the terminal
     // at the wrong geometry. (The per-terminal ResizeObserver also covers this;
     // this is a fast-path for the common tab-switch.)
-    var sess = window.WR2.sessions[id];
     if (sess && sess.fit) {
       if (window.WRFitSoon) window.WRFitSoon(sess);
       else window.requestAnimationFrame(function () { try { sess.fit.fit(); } catch (e) {} });

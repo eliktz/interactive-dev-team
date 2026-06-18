@@ -78,6 +78,37 @@
     term.open(hostDiv);
     try { if (fit) fit.fit(); } catch (e) {}
 
+    // Active-only rendering: only the terminal the user is viewing writes to
+    // xterm live. Hidden tabs buffer their raw output and flush on activation.
+    // Rendering N live terminals at once (one per agent) saturates a remote
+    // browser's single main thread — on a 5-agent squad the operator's fast
+    // local machine copes but a remote user sees ~minute-long input lag. xterm
+    // .write() (VT parsing + render) is the expensive part, so we skip it for
+    // hidden tabs and replay the buffer on switch. The WS still receives bytes
+    // (so scrollback/unread stay correct); only the costly render is deferred.
+    var pending = [];
+    var pendingChars = 0;
+    var PENDING_CAP = 512 * 1024; // bound catch-up/memory; xterm scrollback caps the rest
+    function isActive() { return window.WR2 && window.WR2.activeTabId === agentId; }
+    function writeOrBuffer(text) {
+      if (isActive()) {
+        term.write(text);
+        return;
+      }
+      pending.push(text);
+      pendingChars += text.length;
+      while (pendingChars > PENDING_CAP && pending.length > 1) {
+        pendingChars -= pending.shift().length;
+      }
+    }
+    function flushPending() {
+      if (!pending.length) return;
+      var chunk = pending.join('');
+      pending = [];
+      pendingChars = 0;
+      try { term.write(chunk); } catch (e) {}
+    }
+
     var ws = new window.WSClient({
       agentId: agentId,
       url: wsUrlFor(agentId),
@@ -98,18 +129,18 @@
           var decoded;
           try { decoded = window.WRBase64Decode(frame.data); }
           catch (e) { decoded = frame.data; }
-          term.write(decoded);
+          writeOrBuffer(decoded);
           stashScrollback(agentId, decoded);
           if (window.WR2.activeTabId !== agentId) {
             window.WR2.markUnread(agentId, true);
           }
         } else if (frame.type === 'raw' && typeof frame.data === 'string') {
-          term.write(frame.data);
+          writeOrBuffer(frame.data);
           stashScrollback(agentId, frame.data);
         } else if (frame.type === 'title' && frame.title) {
           // optional: update tab name later
         } else if (frame.type === 'scrollback' && Array.isArray(frame.lines)) {
-          frame.lines.forEach(function (l) { term.write(l); stashScrollback(agentId, l); });
+          frame.lines.forEach(function (l) { writeOrBuffer(l); stashScrollback(agentId, l); });
         }
       },
     });
@@ -169,6 +200,7 @@
       term: term,
       fit: fit,
       scrollback: [],
+      flush: flushPending,
     };
     window.WR2.sessions[agentId] = session;
 
@@ -197,7 +229,7 @@
         if (!data) return;
         var lines = data.lines || data.scrollback || [];
         lines.forEach(function (line) {
-          term.write(line);
+          writeOrBuffer(line);
           stashScrollback(agentId, line);
         });
       })
