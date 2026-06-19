@@ -126,17 +126,30 @@ Telegram token + group ID, and runs the **staged bring-up**:
 3. `up -d --no-deps war-room warroom2` — war-room boots with the company ID already
    in its env; `--no-deps` keeps stage 3 from chain-recreating paperclip
 
-**Paperclip deployment mode (E2E finding F4):** squad paperclips default to
-`PAPERCLIP_DEPLOYMENT_MODE=local_trusted` (set in the squad `.env` from the template) —
-required for stage 2 to work at all: in `authenticated` mode a fresh instance has zero
-instance admins and `setup-company.sh`'s unauthenticated `/api/companies` calls 403
-(bootstrap would need the full sign-up → bootstrap-CEO invite → accept dance). This is
-security-equivalent at squad exposure: every squad port binds `127.0.0.1` only, behind
-the SSH tunnel. Set `authenticated` ONLY for instances exposed beyond loopback —
-tenant #1 (`gonorth`, public `paperclip.tlk.solutions`) pins it in its `.env`.
-`setup-company.sh` sends `Origin == Host` on every call (paperclip's board-mutation
-guard requires it), so it also works against already-bootstrapped authenticated
-instances given a valid session.
+**Paperclip deployment mode (E2E Defect #3 fix):** squad paperclips default to
+`PAPERCLIP_DEPLOYMENT_MODE=authenticated` (set in the squad `.env` from the template,
+matching live squads `gonorth`/`probe`). This is the ONLY mode compatible with the
+container topology: `docker-compose.yml` binds the paperclip process to `HOST=0.0.0.0`
+so the published `127.0.0.1:<pc_port>:3100` forward can reach it, and paperclip
+**rejects** `local_trusted` on a non-loopback bind (`local_trusted mode requires
+loopback host binding (received: 0.0.0.0)`) — that combination crash-loops a fresh
+squad's paperclip. Binding `127.0.0.1` *inside* the container (what `local_trusted`
+forces) makes the process unreachable through the published port, so `local_trusted`
+cannot satisfy reachability either.
+
+A fresh `authenticated` instance starts with zero instance admins
+(`bootstrapStatus=bootstrap_pending`) and 403s unauthenticated `/api/companies` calls,
+so **stage 2 (`setup-company.sh`) now bootstraps the first instance admin itself**,
+entirely from inside the squad and over supported surfaces: it creates a one-time
+`bootstrap_ceo` invite via paperclip's own `@paperclipai/db` module (run inside the
+paperclip container — the same insert the bundled `paperclipai auth-bootstrap-ceo` CLI
+performs), signs up an admin user (`POST /api/auth/sign-up/email`, credential generated
+locally and recorded in `private/paperclip-admin.env`, mode 0600), then accepts the
+invite (`POST /api/invites/<token>/accept`) to promote that user — flipping
+`bootstrapStatus` to `ready`. It then registers the company/agents with the admin
+session cookie. The step is idempotent (skipped when health already reports `ready`)
+and a no-op for any legacy `local_trusted` instance. `setup-company.sh` also sends
+`Origin == Host` on every call (paperclip's board-mutation guard requires it).
 
 Full fresh-host walkthrough (prerequisites, what to fill, what's not in the repo):
 [REPRODUCING.md](../REPRODUCING.md).

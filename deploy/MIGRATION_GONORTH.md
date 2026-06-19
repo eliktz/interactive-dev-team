@@ -124,7 +124,7 @@ Source the values from the old `.env` next to the old compose project and from
 | `WARROOM2_BASIC_AUTH_USER` / `_PASS` / `WARROOM2_ADMIN_TOKEN` | current values (keep — operators' saved logins survive) |
 | `BETTER_AUTH_SECRET` | **MUST equal the current live value** — a new secret invalidates every Paperclip session |
 | `PAPERCLIP_PUBLIC_URL` | keep the live public URL (`https://paperclip.tlk.solutions`) |
-| `PAPERCLIP_DEPLOYMENT_MODE` | `authenticated` — gonorth's paperclip is exposed beyond loopback (`paperclip.tlk.solutions`), so it MUST pin this: the compose template defaults to `local_trusted` for loopback-only squads (E2E finding F4) |
+| `PAPERCLIP_DEPLOYMENT_MODE` | `authenticated` — gonorth's paperclip is exposed beyond loopback (`paperclip.tlk.solutions`). This is also now the squad template default for every new squad (E2E Defect #3 fix): `authenticated` is the only mode compatible with the `HOST=0.0.0.0` + published-loopback-port topology, and `setup-company.sh` self-bootstraps the first instance admin |
 | `PAPERCLIP_ALLOWED_HOSTNAMES` | current value + `paperclip.gonorth.localhost` |
 | `PAPERCLIP_COMPANY_ID` | `a951bb35-24a9-412a-bbcc-629c5acae619` (existing company — do NOT re-run setup-company.sh) |
 | `AZURE_OPENAI_API_KEY` | current value |
