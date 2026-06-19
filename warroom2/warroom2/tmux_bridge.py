@@ -38,20 +38,24 @@ from . import docker_client
 
 log = logging.getLogger(__name__)
 
-# ── Live-client heartbeat registry ───────────────────────────────────────────
-# Maps a per-WS linked session name (``<base>-cli-<uuid>``) to the monotonic
-# timestamp of its last client heartbeat. A live browser tab sends a ``hb`` frame
-# every ~20s REGARDLESS of focus/output, so a fresh entry here means "the WS is
-# genuinely alive". ``sweep_stale_clients`` reaps any ``<base>-cli-*`` tmux
-# session whose entry is missing or stale — which catches the attached-but-dead
-# phantom clients (left by ungraceful tunnel drops) that the zero-client
-# ``_prune_orphan_clients`` cannot see and that otherwise survive until the next
-# warroom2 restart, re-accumulating and corrupting window geometry.
-_LIVE_CLIENTS: Dict[str, float] = {}
+# ── Live-client registry ─────────────────────────────────────────────────────
+# Maps a per-WS linked session name (``<base>-cli-<uuid>``) to its last heartbeat
+# (monotonic), or ``None`` while the WS is open but hasn't heartbeated yet.
+# PRESENCE in this dict means "warroom2 has an open WebSocket for this session";
+# the value adds liveness once the client (new JS) starts sending ``hb`` frames.
+#
+# ``sweep_stale_clients`` keeps a session iff EITHER (a) its WS is open and it has
+# never heartbeated (value ``None`` — e.g. a tab on cached old JS: transition-safe,
+# never wrongly reaped), or (b) its last heartbeat is fresh. It reaps a session
+# when its WS is gone (absent from the dict) OR it once heartbeated but went silent
+# (half-open WS from a tunnel drop). This catches the attached-but-dead phantom
+# clients the zero-client ``_prune_orphan_clients`` can't see, which otherwise
+# survive until the next warroom2 restart and corrupt window geometry.
+_LIVE_CLIENTS: Dict[str, Optional[float]] = {}
 
 
 def register_client(linked: str) -> None:
-    _LIVE_CLIENTS[linked] = time.monotonic()
+    _LIVE_CLIENTS[linked] = None  # WS open; no heartbeat seen yet
 
 
 def touch_client(linked: Optional[str]) -> None:
@@ -64,19 +68,27 @@ def unregister_client(linked: Optional[str]) -> None:
         _LIVE_CLIENTS.pop(linked, None)
 
 
+def _is_live(name: str, now: float, stale_s: float) -> bool:
+    """True if the session has an open WS and (no heartbeat yet OR a fresh one)."""
+    if name not in _LIVE_CLIENTS:
+        return False                       # no open WS → orphan
+    hb = _LIVE_CLIENTS[name]
+    if hb is None:
+        return True                        # WS open, pre-heartbeat (old JS) → keep
+    return (now - hb) <= stale_s           # heartbeated; fresh = live, stale = half-open
+
+
 async def sweep_stale_clients(
     container: str, base: str, stale_s: float = 75.0, grace_s: float = 30.0
 ) -> int:
-    """Reap ``<base>-cli-*`` sessions with no live (recently-heartbeating) WS.
+    """Reap ``<base>-cli-*`` sessions whose WS is gone or whose heartbeat is stale.
 
-    A session is kept iff its linked name has a heartbeat newer than ``stale_s``;
-    otherwise it is killed once it is older than ``grace_s`` (so a tab still
-    mid-connect — registered but not yet heartbeating — is never caught). Unlike
-    ``_prune_orphan_clients`` this ignores ``session_attached``, so it reaps the
-    attached-but-dead phantom clients that tunnel drops leave behind.
+    Kept iff :func:`_is_live` (open WS, and either no heartbeat yet or a fresh one),
+    and only ever killed once older than ``grace_s`` so a tab mid-connect is never
+    caught. Ignores ``session_attached``, so it reaps the attached-but-dead phantom
+    clients that tunnel drops leave behind.
     """
     now = time.monotonic()
-    live = {name for name, ts in _LIVE_CLIENTS.items() if (now - ts) <= stale_s}
     script = (
         "now=$(date +%s); "
         "tmux list-sessions -F '#{session_name} #{session_created}' 2>/dev/null | "
@@ -89,7 +101,7 @@ async def sweep_stale_clients(
         log.debug("sweep_stale_clients list failed for %s: %s", container, e)
         return 0
     candidates = [ln.strip() for ln in out.splitlines() if ln.strip()]
-    stale = [n for n in candidates if n not in live]
+    stale = [n for n in candidates if not _is_live(n, now, stale_s)]
     killed = 0
     for name in stale:
         try:
