@@ -189,11 +189,15 @@ require_docker() {
 # (DOCKER_HOST, SQUADCTL_*, PATH) are deliberately preserved — they steer how
 # compose talks to the daemon, not what the squad renders.
 squad_compose() {
+  # Capture squadctl's own controls into locals BEFORE the scrub — the
+  # ${!SQUAD_@} glob would otherwise unset SQUAD_ENV itself, and dereferencing
+  # it afterwards aborts under `set -u` (Defect #5 regression).
+  local _ef="$SQUAD_ENV" _slug="$SLUG" _cf="$COMPOSE_FILE"
   (
     unset COMPOSE_PROJECT_NAME
     unset "${!SQUAD_@}"      # SQUAD_DASH_PORT, SQUAD_PORT_BASE, SQUAD_HOME, ...
     unset "${!WARROOM2_@}"   # WARROOM2_BASIC_AUTH_*, WARROOM2_COMPANY_NAME, ...
-    docker compose -p "$SLUG" --env-file "$SQUAD_ENV" -f "$COMPOSE_FILE" "$@"
+    docker compose -p "$_slug" --env-file "$_ef" -f "$_cf" "$@"
   )
 }
 
