@@ -61,12 +61,14 @@ RUN useradd -m -s /bin/bash admin
 # / plan §2.3) where /var/run/docker.sock is mounted into the admin directly.
 ARG DOCKER_GID=999
 
-# --- install Claude Code CLI ---
-# Native installer AS the run user (~/.local/share/claude) so the auto-updater
-# can write to its own install. A root-owned `npm -g` install pins the version
-# forever (auto-update fails with EACCES for the run uid) — see the war-room
-# Dockerfile for the same discipline.
+# --- install Bun (required by the Telegram plugin's channel server) + Claude CLI ---
+# Bun: the telegram@claude-plugins-official channel runs server.ts via `bun`
+# (grammy). Without it the channel never starts (no bot.pid, no polling) — the
+# war-room image installs it for the same reason. Claude: native installer AS the
+# run user (~/.local/share/claude) so the auto-updater can write to its own
+# install (a root-owned `npm -g` pins the version forever — EACCES for the uid).
 USER admin
+RUN curl -fsSL https://bun.sh/install | bash
 RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
 
@@ -101,7 +103,7 @@ ENV LANG=C.utf8
 ENV LC_ALL=C.utf8
 ENV COLORTERM=truecolor
 ENV FORCE_COLOR=3
-ENV PATH="/home/admin/.local/bin:${PATH}"
+ENV PATH="/home/admin/.local/bin:/home/admin/.bun/bin:${PATH}"
 
 # --- verify installation ---
 RUN claude --version
