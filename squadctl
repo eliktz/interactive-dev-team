@@ -175,8 +175,26 @@ require_docker() {
 }
 
 # Every compose call is squad-scoped: -p <slug> --env-file <squad .env>.
+#
+# Defect #4 (env-leak): Docker Compose precedence is `process environment` >
+# `--env-file`. When squadctl runs from INSIDE the platform-admin container, the
+# admin's own shell carries the dashboard-scoped vars (SQUAD_DASH_PORT=7900,
+# WARROOM2_* = Admin's values, etc., loaded from /srv/platform-admin/.env via the
+# service env_file). Those inherited vars would OVERRIDE the squad's rendered .env
+# — e.g. the squad's warroom2 tried to bind the admin's 7900 instead of its 7801.
+# Defense: run compose with a CLEAN sub-environment for the squad-scoped
+# namespaces so the squad's --env-file authoritatively wins for EVERY collision
+# (not just the port). We strip the SQUAD_* and WARROOM2_* namespaces plus
+# COMPOSE_PROJECT_NAME (we pass -p explicitly). squadctl's OWN controls
+# (DOCKER_HOST, SQUADCTL_*, PATH) are deliberately preserved — they steer how
+# compose talks to the daemon, not what the squad renders.
 squad_compose() {
-  docker compose -p "$SLUG" --env-file "$SQUAD_ENV" -f "$COMPOSE_FILE" "$@"
+  (
+    unset COMPOSE_PROJECT_NAME
+    unset "${!SQUAD_@}"      # SQUAD_DASH_PORT, SQUAD_PORT_BASE, SQUAD_HOME, ...
+    unset "${!WARROOM2_@}"   # WARROOM2_BASIC_AUTH_*, WARROOM2_COMPANY_NAME, ...
+    docker compose -p "$SLUG" --env-file "$SQUAD_ENV" -f "$COMPOSE_FILE" "$@"
+  )
 }
 
 list_squads() {
