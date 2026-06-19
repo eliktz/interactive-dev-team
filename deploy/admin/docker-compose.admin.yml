@@ -68,6 +68,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}   # or claude.ai OAuth in the state volume
       ADMIN_TMUX_SESSION: ${ADMIN_TMUX_SESSION:-war-room}   # MUST equal WARROOM2_TMUX_SESSION
       ADMIN_MODEL: ${ADMIN_MODEL:-sonnet}
+      # Telegram (optional, DM-only + allow-listed to the operator). Empty => CLI-only.
+      ADMIN_TELEGRAM_TOKEN: ${ADMIN_TELEGRAM_TOKEN:-}
+      OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
       TZ: ${TZ:-UTC}
     # FIX (Defect #4, env-leak): the agent service deliberately does NOT load
     # /srv/platform-admin/.env via `env_file`. That file carries the dashboard's

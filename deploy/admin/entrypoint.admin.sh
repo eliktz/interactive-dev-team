@@ -41,17 +41,74 @@ else
   echo "[admin] WARNING: persona file not found at $PERSONA — starting without it"
 fi
 
+# --- Telegram channel (optional; mirrors launch.sh) --------------------------
+# When ADMIN_TELEGRAM_TOKEN is set, wire the official Telegram plugin scoped to
+# this single admin agent. SECURITY: the admin is root-equivalent on the VM, so
+# access is DM-only and ALLOW-LISTED to OPERATOR_TELEGRAM_ID — no groups, nobody
+# else can command it. Token absent => CLI-only (today's behavior), no --channels.
+CHANNELS_FLAG=""
+STATE_DIR_EXPORT="# CLI-only: ADMIN_TELEGRAM_TOKEN unset — running without --channels"
+if [ -n "${ADMIN_TELEGRAM_TOKEN:-}" ]; then
+  TG_STATE_DIR="$HOME/.claude/channels/telegram-admin"
+  SETTINGS_JSON="$HOME/.claude/settings.json"
+  mkdir -p "$TG_STATE_DIR/inbox" "$TG_STATE_DIR/approved"
+
+  # Token -> channel .env (0600), rewritten each boot from the env var.
+  printf 'TELEGRAM_BOT_TOKEN=%s\n' "$ADMIN_TELEGRAM_TOKEN" > "$TG_STATE_DIR/.env"
+  chmod 600 "$TG_STATE_DIR/.env"
+
+  # DM-only allow-list of the operator; groups {} (no group routing for admin).
+  cat > "$TG_STATE_DIR/access.json" <<ACCESSEOF
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["${OPERATOR_TELEGRAM_ID:-}"],
+  "groups": {},
+  "pending": {}
+}
+ACCESSEOF
+  [ -n "${OPERATOR_TELEGRAM_ID:-}" ] \
+    || echo "[admin] WARNING: OPERATOR_TELEGRAM_ID empty — allow-list empty; nobody can DM the admin"
+
+  # Enable the plugin in settings.json (create-or-merge; python3 is in the image).
+  python3 - "$SETTINGS_JSON" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+try:
+    d = json.load(open(p))
+except Exception:
+    d = {}
+d.setdefault("enabledPlugins", {})["telegram@claude-plugins-official"] = True
+d["skipDangerousModePermissionPrompt"] = True
+os.makedirs(os.path.dirname(p), exist_ok=True)
+json.dump(d, open(p, "w"), indent=2)
+PY
+
+  # Install the plugin on first run (needs network; idempotent thereafter).
+  if [ ! -d "$HOME/.claude/plugins/cache" ] || [ -z "$(ls -A "$HOME/.claude/plugins/cache" 2>/dev/null)" ]; then
+    echo "[admin] Installing Telegram plugin (first run, ~20s)..."
+    claude plugin marketplace add anthropics/claude-plugins-official 2>&1 || true
+    claude plugin install telegram@claude-plugins-official 2>&1 \
+      && echo "[admin] Telegram plugin installed" \
+      || echo "[admin] WARNING: Telegram plugin install failed — admin may not connect to Telegram"
+  fi
+
+  CHANNELS_FLAG=" --channels plugin:telegram@claude-plugins-official"
+  STATE_DIR_EXPORT="export TELEGRAM_STATE_DIR=${TG_STATE_DIR}"
+  echo "[admin] Telegram channel enabled (DM-only; allow-list: ${OPERATOR_TELEGRAM_ID:-<empty>})"
+fi
+
 # A small restart loop (mirrors launch.sh resilience): if claude exits, restart
 # it inside the same window rather than letting the tab go dead.
 RUN_SCRIPT="$(mktemp /tmp/admin-run.XXXXXX.sh)"
 cat > "$RUN_SCRIPT" <<EOF
 #!/usr/bin/env bash
 cd /home/ravi/interactive-dev-team
+${STATE_DIR_EXPORT}
 RESUME="--continue"
 while true; do
   echo "[admin] Starting Claude Code (model: ${MODEL})\${RESUME:+ [resuming previous session]}..."
   START_TS=\$(date +%s)
-  claude \$RESUME --dangerously-skip-permissions --model ${MODEL} ${PERSONA_FLAG}
+  claude \$RESUME --dangerously-skip-permissions --model ${MODEL} ${PERSONA_FLAG}${CHANNELS_FLAG}
   RAN_FOR=\$(( \$(date +%s) - START_TS ))
   if [ "\$RAN_FOR" -lt 15 ]; then
     echo "[admin] exited after \${RAN_FOR}s — will start FRESH next round"
