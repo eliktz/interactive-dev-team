@@ -721,6 +721,18 @@ cmd_doctor() {
   [ -d "$SQUADS_ROOT" ] || die "squads root not found: $SQUADS_ROOT"
   say "doctor: squads under $SQUADS_ROOT"
 
+  # Fail LOUD if docker is unreachable. doctor's whole job is to see the fleet;
+  # if `docker info` is denied/down (e.g. an admin socket-proxy missing the
+  # /info allow), every container/health probe below silently degrades to WARN
+  # and doctor would otherwise still print "all checks passed" — a false
+  # all-clear. Record a real FAIL so the operator is never told a blind doctor
+  # passed. (Off-VM use with no docker at all still surfaces honestly here.)
+  if have_docker; then
+    doctor_report ok "docker daemon reachable"
+  else
+    doctor_report fail "docker daemon UNREACHABLE (\`docker info\` failed) — doctor cannot see the fleet; checks below are blind. Fix the daemon/socket-proxy (admin proxy must allow GET /info) before trusting this report."
+  fi
+
   # F1: a snippet on disk is NOT proof it routes — F3 taught us the import
   # glob can silently expand to nothing. Fetch the RUNNING config once from
   # the caddy admin API; each squad below checks its host matcher is in it.

@@ -4,8 +4,9 @@ The operational core for the Platform Admin. Sanitized for a public repo: **env-
 NAMES only, never values.** Read the HARD RULES in `AGENTS.md` first — they apply to
 every command below.
 
-You operate from the read-only repo mount at `/workspace/interactive-dev-team`; `squadctl`
-is on your PATH (symlinked into that mount). The only writable data root is `/srv`.
+You operate from the read-only repo mount at `/home/ravi/interactive-dev-team` (mounted at the
+SAME absolute path it has on the host so `squadctl`'s `docker compose` relative binds resolve);
+`squadctl` is on your PATH (symlinked into that mount). The only writable data root is `/srv`.
 
 ---
 

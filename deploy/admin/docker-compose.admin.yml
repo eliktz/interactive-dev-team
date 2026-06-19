@@ -51,6 +51,10 @@ services:
     # publish on the host loopback. With host networking the `ports:` key is
     # ignored — squadctl reaches squad ports directly on 127.0.0.1.
     network_mode: host
+    # FIX (defect #2): host-path parity. squadctl's REPO_ROOT/COMPOSE_FILE derive
+    # from the symlink target (/home/ravi/interactive-dev-team/squadctl), so the
+    # squad compose's relative host binds (./scripts) resolve to real host paths.
+    working_dir: /home/ravi/interactive-dev-team
     environment:
       # FIX #2: Option A proxy is published on the host loopback (a host-net
       # container has no bridge DNS for `admin-docker-proxy`).
@@ -66,7 +70,16 @@ services:
       ADMIN_MODEL: ${ADMIN_MODEL:-sonnet}
       TZ: ${TZ:-UTC}
     volumes:
-      - /home/ravi/interactive-dev-team:/workspace/interactive-dev-team:ro   # repo READ-ONLY (squadctl REPO_ROOT)
+      # FIX (defect #2): mount the repo at the SAME ABSOLUTE host path it has on
+      # the VM. squadctl runs `docker compose` whose squad docker-compose.yml has
+      # RELATIVE host binds (e.g. `./scripts:/workspace/scripts:ro`). docker
+      # compose resolves those relative sources against the compose/project dir
+      # and sends them to the daemon as HOST paths. Because the daemon IS the
+      # host, a /workspace/interactive-dev-team/scripts source does not exist on
+      # the host -> paperclip exits 127. Mounting at /home/ravi/interactive-dev-team
+      # (the real host repo path) makes those relative binds resolve to real host
+      # paths. Still READ-ONLY (squadctl derives REPO_ROOT from BASH_SOURCE here).
+      - /home/ravi/interactive-dev-team:/home/ravi/interactive-dev-team:ro   # repo READ-ONLY (squadctl REPO_ROOT), host-path parity
       - /srv/squads:/srv/squads:rw                                           # squad data (the rw work surface)
       - /srv/platform-admin:/srv/platform-admin:rw                           # admin instance dir (persona seed, etc.)
       - platform-admin-state:/home/admin/.claude                            # claude OAuth/state (must-not-lose)
@@ -98,6 +111,12 @@ services:
       NETWORKS: 1
       VOLUMES: 1
       IMAGES: 1
+      # INFO=1 -> allow GET /info (read-only daemon probe). squadctl's
+      # have_docker()/doctor run `docker info`; without this every write verb
+      # dies with "docker is required" and doctor goes blind. The host-takeover
+      # surface (SYSTEM/SWARM/SECRETS/CONFIGS/PLUGINS/DISTRIBUTION/SESSION/BUILD)
+      # stays denied. The cfg only allows the bare /info path (not /system/*).
+      INFO: 1
       # BUILD/SWARM/SECRETS/CONFIGS/PLUGINS/SYSTEM/DISTRIBUTION/SESSION left
       # UNSET -> off -> denied (and the cfg hard-denies them FIRST regardless).
     volumes:

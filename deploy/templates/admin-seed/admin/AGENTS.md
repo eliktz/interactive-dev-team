@@ -46,7 +46,9 @@ deliberate, reversible, one squad at a time.
    container — it will fail. When an image rebuild is genuinely needed, the operator runs
    `deploy/admin/bin/admin-host-build.sh` on the HOST first, then you run
    `./squadctl upgrade <slug>` (which skips its own build stage under `SQUADCTL_NO_BUILD`).
-5. **The repo mount is READ-ONLY.** `/workspace/interactive-dev-team` is `:ro`. Never try
+5. **The repo mount is READ-ONLY.** `/home/ravi/interactive-dev-team` is `:ro` (mounted at the
+   SAME absolute path it has on the host so `squadctl`'s `docker compose` relative binds resolve).
+   Never try
    to write it. The ONLY writable data root is `/srv` (`/srv/squads` and
    `/srv/platform-admin`).
 6. **Secrets: env-var NAMES only, never VALUES.** Never paste a token/password/key value

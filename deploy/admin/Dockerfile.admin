@@ -74,10 +74,14 @@ USER root
 RUN ln -sfn /home/admin/.local/bin/claude /usr/local/bin/claude
 
 # --- squadctl on PATH — points into the READ-ONLY repo mount ---
-# squadctl derives REPO_ROOT from BASH_SOURCE, so we symlink to the mounted copy
-# rather than baking a stale copy into the image. The repo is mounted read-only
-# at /workspace/interactive-dev-team (see docker-compose.admin.yml).
-RUN ln -sfn /workspace/interactive-dev-team/squadctl /usr/local/bin/squadctl
+# squadctl derives REPO_ROOT from BASH_SOURCE (so COMPOSE_FILE = REPO_ROOT/
+# docker-compose.yml), so we symlink to the mounted copy rather than baking a
+# stale copy into the image. FIX (defect #2): the repo is mounted read-only at
+# the SAME ABSOLUTE host path it has on the VM (/home/ravi/interactive-dev-team,
+# see docker-compose.admin.yml) so the squad compose's RELATIVE host binds
+# (e.g. ./scripts) resolve to real host paths when the daemon (= the host)
+# applies them. The symlink + REPO_ROOT must therefore live under that path.
+RUN ln -sfn /home/ravi/interactive-dev-team/squadctl /usr/local/bin/squadctl
 
 # --- FIX #3: tmux base-index 1 ---
 # The war-room Dockerfile copies tmux.conf (which sets `base-index 1`) into the
@@ -103,7 +107,8 @@ ENV PATH="/home/admin/.local/bin:${PATH}"
 RUN claude --version
 
 # --- working directory: the read-only repo mount (squadctl's REPO_ROOT) ---
-WORKDIR /workspace/interactive-dev-team
+# FIX (defect #2): host-path parity so `docker compose` relative binds resolve.
+WORKDIR /home/ravi/interactive-dev-team
 
 # --- switch to non-root run user ---
 USER admin

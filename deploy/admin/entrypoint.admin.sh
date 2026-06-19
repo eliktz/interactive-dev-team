@@ -25,7 +25,7 @@ WINDOW=1                                     # MUST match agents.json[].window
 MODEL="${ADMIN_MODEL:-sonnet}"
 PERSONA="${ADMIN_PERSONA_FILE:-/srv/platform-admin/agents/admin/AGENTS.md}"
 
-cd /workspace/interactive-dev-team
+cd /home/ravi/interactive-dev-team
 
 # FIX #3: base-index 1 is inherited from ~/.tmux.conf, but assert it defensively
 # so the first window is window 1 (matches agents.json window:1 + warroom2 attach).
@@ -46,7 +46,7 @@ fi
 RUN_SCRIPT="$(mktemp /tmp/admin-run.XXXXXX.sh)"
 cat > "$RUN_SCRIPT" <<EOF
 #!/usr/bin/env bash
-cd /workspace/interactive-dev-team
+cd /home/ravi/interactive-dev-team
 RESUME="--continue"
 while true; do
   echo "[admin] Starting Claude Code (model: ${MODEL})\${RESUME:+ [resuming previous session]}..."

@@ -39,5 +39,5 @@ something is standing or one-off, save it anyway and note the date.
 Never paste a token/password/key VALUE into any file, into argv (ps-visible), or
 into anything that could be committed. Real values live ONLY in 0600 `.env`
 files under `/srv`. Use `--token-file`, never a token on the command line. The
-repo mount (`/workspace/interactive-dev-team`) is READ-ONLY; the only writable
-data root is `/srv`.
+repo mount (`/home/ravi/interactive-dev-team`, the same absolute path it has on
+the host) is READ-ONLY; the only writable data root is `/srv`.
