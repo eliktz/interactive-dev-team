@@ -29,13 +29,81 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 import uuid
-from typing import Optional
+from typing import Dict, Optional
 
 from .agent_registry import Agent
 from . import docker_client
 
 log = logging.getLogger(__name__)
+
+# ── Live-client heartbeat registry ───────────────────────────────────────────
+# Maps a per-WS linked session name (``<base>-cli-<uuid>``) to the monotonic
+# timestamp of its last client heartbeat. A live browser tab sends a ``hb`` frame
+# every ~20s REGARDLESS of focus/output, so a fresh entry here means "the WS is
+# genuinely alive". ``sweep_stale_clients`` reaps any ``<base>-cli-*`` tmux
+# session whose entry is missing or stale — which catches the attached-but-dead
+# phantom clients (left by ungraceful tunnel drops) that the zero-client
+# ``_prune_orphan_clients`` cannot see and that otherwise survive until the next
+# warroom2 restart, re-accumulating and corrupting window geometry.
+_LIVE_CLIENTS: Dict[str, float] = {}
+
+
+def register_client(linked: str) -> None:
+    _LIVE_CLIENTS[linked] = time.monotonic()
+
+
+def touch_client(linked: Optional[str]) -> None:
+    if linked and linked in _LIVE_CLIENTS:
+        _LIVE_CLIENTS[linked] = time.monotonic()
+
+
+def unregister_client(linked: Optional[str]) -> None:
+    if linked:
+        _LIVE_CLIENTS.pop(linked, None)
+
+
+async def sweep_stale_clients(
+    container: str, base: str, stale_s: float = 75.0, grace_s: float = 30.0
+) -> int:
+    """Reap ``<base>-cli-*`` sessions with no live (recently-heartbeating) WS.
+
+    A session is kept iff its linked name has a heartbeat newer than ``stale_s``;
+    otherwise it is killed once it is older than ``grace_s`` (so a tab still
+    mid-connect — registered but not yet heartbeating — is never caught). Unlike
+    ``_prune_orphan_clients`` this ignores ``session_attached``, so it reaps the
+    attached-but-dead phantom clients that tunnel drops leave behind.
+    """
+    now = time.monotonic()
+    live = {name for name, ts in _LIVE_CLIENTS.items() if (now - ts) <= stale_s}
+    script = (
+        "now=$(date +%s); "
+        "tmux list-sessions -F '#{session_name} #{session_created}' 2>/dev/null | "
+        f"while read n c; do case \"$n\" in {base}-cli-*) "
+        f"if [ $((now - c)) -gt {int(grace_s)} ]; then echo \"$n\"; fi ;; esac; done"
+    )
+    try:
+        out = await docker_client.exec_text_async(container, "sh", "-c", script, timeout=5.0)
+    except Exception as e:  # pragma: no cover — best effort
+        log.debug("sweep_stale_clients list failed for %s: %s", container, e)
+        return 0
+    candidates = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    stale = [n for n in candidates if n not in live]
+    killed = 0
+    for name in stale:
+        try:
+            await docker_client.exec_text_async(
+                container, "tmux", "kill-session", "-t", name, timeout=2.0
+            )
+            unregister_client(name)
+            killed += 1
+        except Exception as e:  # pragma: no cover
+            log.debug("sweep kill %s failed: %s", name, e)
+    if killed:
+        log.info("swept %d stale tmux client session(s) in %s: %s",
+                 killed, container, ", ".join(stale))
+    return killed
 
 
 async def _prune_orphan_clients(container: str, base: str, min_age_s: int = 15) -> int:
@@ -161,6 +229,9 @@ class TmuxPtySession:
             raise ValueError(f"tmux_target must be 'session:window', got {target!r}")
         linked = f"{base}-cli-{uuid.uuid4().hex[:8]}"
         self._linked = linked
+        # Register in the heartbeat table immediately (before new-session) so the
+        # periodic sweep treats this mid-connecting tab as live, not an orphan.
+        register_client(linked)
         # Reap orphaned client sessions (prior warroom2 instances / failed
         # disconnects) before adding ours, so they can't accumulate and wedge a
         # tab into a "can't find window" loop.
@@ -347,6 +418,7 @@ class TmuxPtySession:
         # the attach completed). Best-effort; ignore failures.
         linked = self._linked
         self._linked = None
+        unregister_client(linked)
         if linked:
             try:
                 await docker_client.exec_text_async(
