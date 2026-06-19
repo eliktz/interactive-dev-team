@@ -15,13 +15,12 @@
 # polls the caddy admin API (127.0.0.1:2019) to confirm the route is LOADED, so a
 # missed reload is caught, never silent.
 #
-# Alternative (operator may choose): the scoped sudoers approach in plan §7
-#   /etc/sudoers.d/squadctl-caddy:
-#     ravi ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy
-#     ravi ALL=(root) NOPASSWD: /usr/bin/chgrp caddy /srv/squads/*, \
-#       /usr/bin/chgrp caddy /srv/squads/*/caddy.snippet, \
-#       /usr/bin/chgrp caddy /srv/platform-admin/caddy.snippet
-# but this path-unit needs no in-container sudo and is the documented default.
+# Alternative (operator may choose): the scoped sudoers approach in plan §7 —
+# a /etc/sudoers.d/squadctl-caddy drop-in granting the VM user passwordless rights
+# to exactly two commands: `systemctl reload caddy`, and `chgrp caddy` restricted
+# to /srv/squads/*[/caddy.snippet] + /srv/platform-admin/caddy.snippet (nothing
+# else). See docs/ADMIN_CONSOLE.md for the exact rule. This path-unit needs no
+# in-container sudo and is the documented default.
 # =============================================================================
 [Unit]
 Description=chgrp caddy on /srv caddy.snippets + reload caddy (triggered by admin-caddy-reload.path)
