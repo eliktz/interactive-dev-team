@@ -1,0 +1,37 @@
+# =============================================================================
+# admin-caddy-reload.service — oneshot triggered by admin-caddy-reload.path
+# (plan §7 option a, FIX #4)
+#
+# Runs as root on the HOST and does the two things squadctl cannot do from
+# inside the admin container:
+#   1. chgrp caddy on the changed snippets so caddy's User=caddy can read them
+#      (the 0750 /srv dirs would otherwise hide them from the import glob — see
+#      squadctl grant_caddy_read / E2E finding F3);
+#   2. systemctl reload caddy so the rendered snippet becomes a LIVE route.
+#
+# Triggered by admin-caddy-reload.path (see that file for the install steps).
+# This is the HARD PREREQUISITE from plan §7: until it is installed, a snippet
+# rendered from inside the admin container is NOT a live route. `squadctl doctor`
+# polls the caddy admin API (127.0.0.1:2019) to confirm the route is LOADED, so a
+# missed reload is caught, never silent.
+#
+# Alternative (operator may choose): the scoped sudoers approach in plan §7
+#   /etc/sudoers.d/squadctl-caddy:
+#     ravi ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy
+#     ravi ALL=(root) NOPASSWD: /usr/bin/chgrp caddy /srv/squads/*, \
+#       /usr/bin/chgrp caddy /srv/squads/*/caddy.snippet, \
+#       /usr/bin/chgrp caddy /srv/platform-admin/caddy.snippet
+# but this path-unit needs no in-container sudo and is the documented default.
+# =============================================================================
+[Unit]
+Description=chgrp caddy on /srv caddy.snippets + reload caddy (triggered by admin-caddy-reload.path)
+Documentation=file:docs/ADMIN_CONSOLE.md
+After=caddy.service
+Wants=caddy.service
+
+[Service]
+Type=oneshot
+# Make the snippets readable by caddy (best-effort; missing paths are fine).
+ExecStart=/bin/sh -c 'chgrp -f caddy /srv/platform-admin/caddy.snippet /srv/squads/*/caddy.snippet 2>/dev/null || true'
+# Reload (not restart) so live connections survive; --no-block is unnecessary.
+ExecStart=/usr/bin/systemctl reload caddy

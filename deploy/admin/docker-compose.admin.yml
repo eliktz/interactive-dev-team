@@ -1,0 +1,139 @@
+# =============================================================================
+# docker-compose.admin.yml — platform ADMIN war-room console
+#
+# Its OWN compose project (run with `-p platform-admin`), DELIBERATELY separate
+# from the squad docker-compose.yml so no squad-scoped `squadctl <verb> <slug>`
+# (which is `-p <slug>`) can ever see, recreate, or prune these services.
+#
+# Bring up:
+#   docker compose -p platform-admin \
+#     --env-file /srv/platform-admin/.env \
+#     -f deploy/admin/docker-compose.admin.yml up -d   # NEVER --remove-orphans
+#
+# Single-service refresh:
+#   docker compose -p platform-admin --env-file /srv/platform-admin/.env \
+#     -f deploy/admin/docker-compose.admin.yml up -d --no-deps <svc>
+#
+# REGISTRATION (required, done in the squadctl change + operator profile): the
+# three container names below — platform-admin, admin-docker-proxy,
+# admin-warroom2 — MUST be added to SQUADCTL_PLATFORM_CONTAINERS so
+# `squadctl doctor` tracks them and no squad-scoped compose call ever sees them:
+#   SQUADCTL_PLATFORM_CONTAINERS="openclaw agency-tick claim-watcher \
+#     deploy-webhook platform-admin admin-docker-proxy admin-warroom2"
+#
+# IMAGES: warroom/platform-admin:latest and warroom/warroom2:latest are built
+# OUT-OF-BAND on the host (deploy/admin/bin/admin-host-build.sh) BEFORE `up -d`.
+# The agent runs SQUADCTL_NO_BUILD=1 so no `--build` is issued through the
+# BUILD-denied admin socket-proxy. A first-ever bring-up on a fresh host with
+# missing images will fail with an obscure pull error — run the host build first.
+#
+# SECRETS: env-var NAMES / placeholders only here. All real VALUES come from
+# /srv/platform-admin/.env (0600, never committed) via --env-file.
+#
+# TRUST BOUNDARY (honest): network_mode: host + container-create rights + /srv
+# RW make `platform-admin` a HOST-EQUIVALENT trust boundary. The socket-proxy is
+# defense-in-depth (removes swarm/secrets/configs/plugins/system/distribution/
+# session/build surface), NOT a sandbox. See docs/ADMIN_CONSOLE.md and plan §2.
+# =============================================================================
+
+name: platform-admin
+
+services:
+  # --- the agent container (load-bearing) ----------------------------------
+  platform-admin:
+    build:
+      context: ../../              # repo root (build-time only; runtime repo is the ro mount)
+      dockerfile: deploy/admin/Dockerfile.admin
+    image: warroom/platform-admin:latest      # built once, out-of-band (admin-host-build.sh)
+    container_name: platform-admin            # stable name; in SQUADCTL_PLATFORM_CONTAINERS
+    # FIX #2: 127.0.0.1 == host loopback, so squadctl's wait_paperclip_health
+    # curl + setup-company.sh's PAPERCLIP_URL reach new-squad paperclips that
+    # publish on the host loopback. With host networking the `ports:` key is
+    # ignored — squadctl reaches squad ports directly on 127.0.0.1.
+    network_mode: host
+    environment:
+      # FIX #2: Option A proxy is published on the host loopback (a host-net
+      # container has no bridge DNS for `admin-docker-proxy`).
+      DOCKER_HOST: tcp://127.0.0.1:2380
+      SQUADCTL_SQUADS_ROOT: /srv/squads
+      # FIX #1: new/upgrade run `up -d` (no --build); images prebuilt out-of-band.
+      SQUADCTL_NO_BUILD: "1"
+      # Load-bearing + admin containers squadctl must never delete + doctor tracks.
+      SQUADCTL_PLATFORM_CONTAINERS: "openclaw agency-tick claim-watcher deploy-webhook platform-admin admin-docker-proxy admin-warroom2"
+      # env-var NAMES only — VALUES come from --env-file /srv/platform-admin/.env.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}   # or claude.ai OAuth in the state volume
+      ADMIN_TMUX_SESSION: ${ADMIN_TMUX_SESSION:-war-room}   # MUST equal WARROOM2_TMUX_SESSION
+      ADMIN_MODEL: ${ADMIN_MODEL:-sonnet}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - /home/ravi/interactive-dev-team:/workspace/interactive-dev-team:ro   # repo READ-ONLY (squadctl REPO_ROOT)
+      - /srv/squads:/srv/squads:rw                                           # squad data (the rw work surface)
+      - /srv/platform-admin:/srv/platform-admin:rw                           # admin instance dir (persona seed, etc.)
+      - platform-admin-state:/home/admin/.claude                            # claude OAuth/state (must-not-lose)
+    env_file:
+      - /srv/platform-admin/.env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${ADMIN_CPUS:-1}"
+          memory: ${ADMIN_MEM:-768m}          # plan §11a: 768m fits a single tmux Claude session
+
+  # --- admin socket-proxy (broad ACL; defense-in-depth) --------------------
+  # Mirrors how the squad docker-proxy service consumes its haproxy config (the
+  # Tecnativa entrypoint seds ${BIND_CONFIG} into haproxy.cfg.template and runs
+  # the result — mounting plain haproxy.cfg would be silently ignored). The
+  # broad admin ACL lives in deploy/docker-proxy/haproxy.admin.cfg.
+  admin-docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: admin-docker-proxy        # in SQUADCTL_PLATFORM_CONTAINERS
+    # Published on the HOST loopback so the host-net agent reaches it at
+    # 127.0.0.1:2380. The proxy itself stays on the default bridge.
+    ports:
+      - "127.0.0.1:${ADMIN_PROXY_PORT:-2380}:2375"
+    environment:
+      CONTAINERS: 1
+      EXEC: 1
+      POST: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      IMAGES: 1
+      # BUILD/SWARM/SECRETS/CONFIGS/PLUGINS/SYSTEM/DISTRIBUTION/SESSION left
+      # UNSET -> off -> denied (and the cfg hard-denies them FIRST regardless).
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mounted over the image's TEMPLATE path (same as the squad docker-proxy).
+      - ../docker-proxy/haproxy.admin.cfg:/usr/local/etc/haproxy/haproxy.cfg.template:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${ADMIN_PROXY_CPUS:-0.25}"
+          memory: ${ADMIN_PROXY_MEM:-64m}
+
+  # --- admin warroom2 dashboard (single tab, stock image, NO build) --------
+  # Skeleton only: the agents.json / WARROOM2_* config detail is the SURFACE
+  # task's job. Here we define the env-file + socket mount + ports; all
+  # WARROOM2_* values come from /srv/platform-admin/.env. It execs into
+  # platform-admin BY CONTAINER NAME via the raw ro socket (works regardless of
+  # the agent's network_mode: host — exec goes through the daemon, not the
+  # network) and does NOT go through the admin proxy.
+  admin-warroom2:
+    image: warroom/warroom2:latest            # stock image, NO build
+    container_name: admin-warroom2            # in SQUADCTL_PLATFORM_CONTAINERS
+    ports:
+      - "127.0.0.1:${SQUAD_DASH_PORT:-7900}:8080"
+    env_file:
+      - /srv/platform-admin/.env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # exec PTY into platform-admin (raw ro socket)
+      - /srv/platform-admin:/workspace/interactive-dev-team:rw   # holds config/agents.json + bus/ + agents/
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${ADMIN_WARROOM2_CPUS:-0.5}"
+          memory: ${ADMIN_WARROOM2_MEM:-384m}
+
+volumes:
+  platform-admin-state:
