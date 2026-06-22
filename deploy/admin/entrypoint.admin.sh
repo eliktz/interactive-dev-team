@@ -32,13 +32,65 @@ cd /home/ravi/interactive-dev-team
 tmux set -g base-index 1 2>/dev/null || true
 tmux setw -g pane-base-index 1 2>/dev/null || true
 
-# Build the persona flag only when the seed file is present.
+# --- Persona artifacts (same set the squad bots get: SOUL/AGENTS/CLAUDE/...) --
+# Squad agents auto-load their persona-dir CLAUDE.md because launch.sh cd's into
+# that dir. The admin keeps cwd at the repo (so its relative squadctl/registry
+# commands resolve), so we instead BRIDGE the persona into Claude's user-level
+# memory: ~/.claude/CLAUDE.md @imports the persona-dir CLAUDE.md, which in turn
+# @imports SOUL/AGENTS/RUNBOOK/registry (paths relative to the persona dir). Net
+# effect is identical to a squad bot — all personal artifacts load every session.
+PERSONA_DIR="$(dirname "$PERSONA")"
+TEMPLATE_DIR="/home/ravi/interactive-dev-team/deploy/templates/admin-seed/admin"
+
+# Self-seed: copy any MISSING persona file from the repo template. Non-destructive
+# — an existing file (i.e. operator edits) is never overwritten. Makes a fresh
+# recreate turnkey (SOUL.md lands automatically) and self-heals future additions.
+mkdir -p "$PERSONA_DIR"
+for f in SOUL AGENTS CLAUDE RUNBOOK registry; do
+  if [ ! -f "$PERSONA_DIR/$f.md" ] && [ -f "$TEMPLATE_DIR/$f.md" ]; then
+    cp "$TEMPLATE_DIR/$f.md" "$PERSONA_DIR/$f.md"
+    echo "[admin] seeded persona file: $f.md"
+  fi
+done
+
+# Upgrade guard: an existing install already has a persona CLAUDE.md from an
+# OLDER template (before SOUL existed), so the non-destructive copy above skips
+# it and it would never @import SOUL.md. Additively ensure the import is present
+# — append-only, never rewrites or removes any other line.
+if [ -f "$PERSONA_DIR/CLAUDE.md" ] && [ -f "$PERSONA_DIR/SOUL.md" ] \
+   && ! grep -qF "@import SOUL.md" "$PERSONA_DIR/CLAUDE.md"; then
+  printf '\n@import SOUL.md\n' >> "$PERSONA_DIR/CLAUDE.md"
+  echo "[admin] added missing '@import SOUL.md' to $PERSONA_DIR/CLAUDE.md"
+fi
+
+# Bridge the persona into ~/.claude/CLAUDE.md WITHOUT clobbering anything the
+# agent saved there (standing instructions persist across restarts in that file).
+# Only prepends the @import line when it is not already present.
+USER_CLAUDE="$HOME/.claude/CLAUDE.md"
+IMPORT_LINE="@import $PERSONA_DIR/CLAUDE.md"
+mkdir -p "$HOME/.claude"
+if [ -f "$PERSONA_DIR/CLAUDE.md" ]; then
+  if [ ! -f "$USER_CLAUDE" ] || ! grep -qF "$IMPORT_LINE" "$USER_CLAUDE" 2>/dev/null; then
+    { echo "<!-- admin persona bridge (auto-managed by entrypoint.admin.sh; edits below are preserved) -->"
+      echo "$IMPORT_LINE"
+      echo ""
+      [ -f "$USER_CLAUDE" ] && cat "$USER_CLAUDE"
+    } > "$USER_CLAUDE.tmp" && mv "$USER_CLAUDE.tmp" "$USER_CLAUDE"
+    echo "[admin] bridged persona into $USER_CLAUDE"
+  else
+    echo "[admin] persona bridge already present in $USER_CLAUDE"
+  fi
+fi
+
+# Fallback: only when the persona-dir CLAUDE.md is absent (seed failed) do we use
+# the old single-file system-prompt injection so the agent still boots with its
+# rules. When CLAUDE.md is present, the bridge above is the loader (squad parity).
 PERSONA_FLAG=""
-if [ -f "$PERSONA" ]; then
+if [ ! -f "$PERSONA_DIR/CLAUDE.md" ] && [ -f "$PERSONA" ]; then
   PERSONA_FLAG="--append-system-prompt-file $PERSONA"
-  echo "[admin] using persona: $PERSONA"
-else
-  echo "[admin] WARNING: persona file not found at $PERSONA — starting without it"
+  echo "[admin] FALLBACK: persona CLAUDE.md absent — using --append-system-prompt-file $PERSONA"
+elif [ ! -f "$PERSONA_DIR/CLAUDE.md" ]; then
+  echo "[admin] WARNING: no persona CLAUDE.md and no $PERSONA — starting without persona"
 fi
 
 # --- Telegram channel (optional; mirrors launch.sh) --------------------------

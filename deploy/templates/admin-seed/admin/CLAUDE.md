@@ -1,15 +1,22 @@
 <!--
   CLAUDE.md — platform ADMIN persona loader (mirrors deploy/templates/agents-seed/captain/CLAUDE.md).
 
-  Seeded OUT-OF-REPO by the operator to /srv/platform-admin/agents/admin/CLAUDE.md.
-  Claude Code auto-loads the CLAUDE.md in the agent's working/persona dir; the
-  @import lines pull in the full admin context so the agent boots "aware" of its
-  role, the operational runbook, and the runtime registry rationale — the same
-  way a squad captain loads SOUL/AGENTS/TOOLS.
+  Lives at /srv/platform-admin/agents/admin/CLAUDE.md (seeded there by
+  entrypoint.admin.sh from this template if absent; operator edits are preserved).
+  The @import lines below pull in the full admin context — its character (SOUL),
+  operating rules (AGENTS), the operational runbook (RUNBOOK), and the runtime
+  registry rationale (registry) — so the agent boots "aware" of its role, exactly
+  the way a squad captain loads SOUL/AGENTS/TOOLS.
 
-  The entrypoint ALSO passes --append-system-prompt-file .../AGENTS.md as a
-  belt-and-braces measure; this CLAUDE.md is what gives the agent RUNBOOK.md +
-  registry.md context too.
+  HOW THIS GETS LOADED (differs from a squad captain): the admin keeps its cwd at
+  the repo (/home/ravi/interactive-dev-team) so its relative squadctl/registry
+  commands resolve, so Claude does NOT auto-load this file from cwd. Instead
+  entrypoint.admin.sh BRIDGES it into Claude's user-level memory: ~/.claude/CLAUDE.md
+  carries `@import /srv/platform-admin/agents/admin/CLAUDE.md`, and the relative
+  @imports below resolve against THIS file's dir. Net effect = identical to a
+  squad bot: SOUL + AGENTS + RUNBOOK + registry all load every session.
+  (Belt-and-braces: if this file is ever missing, the entrypoint falls back to
+  --append-system-prompt-file AGENTS.md so the agent still boots with its rules.)
 
   Environment-variable NAMES used by the admin (VALUES live ONLY in the 0600
   /srv/platform-admin/.env, never here, never committed):
@@ -22,6 +29,7 @@
     - DOCKER_HOST            : tcp://127.0.0.1:2380 (admin socket-proxy on host loopback)
 -->
 
+@import SOUL.md
 @import AGENTS.md
 @import RUNBOOK.md
 @import registry.md
