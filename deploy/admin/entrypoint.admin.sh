@@ -71,11 +71,18 @@ IMPORT_LINE="@import $PERSONA_DIR/CLAUDE.md"
 mkdir -p "$HOME/.claude"
 if [ -f "$PERSONA_DIR/CLAUDE.md" ]; then
   if [ ! -f "$USER_CLAUDE" ] || ! grep -qF "$IMPORT_LINE" "$USER_CLAUDE" 2>/dev/null; then
-    { echo "<!-- admin persona bridge (auto-managed by entrypoint.admin.sh; edits below are preserved) -->"
+    # NOTE: the trailing `true` is load-bearing — without it, when $USER_CLAUDE
+    # does not yet exist the group's last command (`[ -f ] && cat`) exits non-zero,
+    # which under `set -e` silently skips the `&& mv` and the bridge file is never
+    # created. `true` forces the group to exit 0; mv is on its own line so it runs.
+    {
+      echo "<!-- admin persona bridge (auto-managed by entrypoint.admin.sh; edits below are preserved) -->"
       echo "$IMPORT_LINE"
       echo ""
       [ -f "$USER_CLAUDE" ] && cat "$USER_CLAUDE"
-    } > "$USER_CLAUDE.tmp" && mv "$USER_CLAUDE.tmp" "$USER_CLAUDE"
+      true
+    } > "$USER_CLAUDE.tmp"
+    mv -f "$USER_CLAUDE.tmp" "$USER_CLAUDE"
     echo "[admin] bridged persona into $USER_CLAUDE"
   else
     echo "[admin] persona bridge already present in $USER_CLAUDE"
