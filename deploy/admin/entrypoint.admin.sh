@@ -157,7 +157,13 @@ ACCESSEOF
   [ -n "${OPERATOR_TELEGRAM_ID:-}" ] \
     || echo "[admin] WARNING: OPERATOR_TELEGRAM_ID empty — allow-list empty; nobody can DM the admin"
 
-  # Enable the plugin in settings.json (create-or-merge; python3 is in the image).
+  # settings.json (create-or-merge; python3 is in the image).
+  # CRITICAL: do NOT set enabledPlugins for telegram. The channel is activated
+  # purely by `--channels plugin:telegram@...` (same as squad launch.sh). Enabling
+  # the plugin ALSO makes claude load the plugin's MCP server independently, so the
+  # telegram poller is started TWICE on one bot token → the two long-pollers
+  # 409-conflict and crash-loop (the 2026-06-23 "poller never stays up"). We pop it
+  # defensively so a stale enabledPlugins from an older boot can't reintroduce it.
   python3 - "$SETTINGS_JSON" <<'PY'
 import json, os, sys
 p = sys.argv[1]
@@ -165,7 +171,7 @@ try:
     d = json.load(open(p))
 except Exception:
     d = {}
-d.setdefault("enabledPlugins", {})["telegram@claude-plugins-official"] = True
+d.pop("enabledPlugins", None)  # channel comes from --channels, NOT plugin-enable
 d["skipDangerousModePermissionPrompt"] = True
 os.makedirs(os.path.dirname(p), exist_ok=True)
 json.dump(d, open(p, "w"), indent=2)

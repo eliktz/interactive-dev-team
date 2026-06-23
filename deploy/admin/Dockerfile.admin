@@ -71,6 +71,12 @@ ARG DOCKER_GID=999
 USER admin
 RUN curl -fsSL https://bun.sh/install | bash
 RUN curl -fsSL https://claude.ai/install.sh | bash
+# PIN claude to 2.1.179. The native installer pulls LATEST, and claude 2.1.186
+# regressed the Telegram channel MCP server: server.ts crash-loops and never holds
+# a steady long-poll (the squad war-room runs the SAME plugin 0.0.6 fine on 2.1.179).
+# Pin to the known-good version the squads run; revisit when a later claude fixes
+# the channel. Paired with ENV DISABLE_AUTOUPDATER=1 below so it can't drift back.
+RUN /home/admin/.local/bin/claude install 2.1.179 --force
 USER root
 
 # Keep `claude` resolvable from the original PATH (tmux server env, scripts).
@@ -99,6 +105,9 @@ RUN chmod +x /usr/local/bin/entrypoint.admin.sh
 
 # --- environment ---
 ENV CLAUDE_CODE_ENABLE_TELEMETRY=0
+# Hold the pinned 2.1.179 (see claude install above) — the auto-updater would
+# otherwise upgrade to latest on first run and reintroduce the channel regression.
+ENV DISABLE_AUTOUPDATER=1
 ENV TERM=xterm-256color
 ENV LANG=C.utf8
 ENV LC_ALL=C.utf8
