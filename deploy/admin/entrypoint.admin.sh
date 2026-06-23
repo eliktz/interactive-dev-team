@@ -158,12 +158,15 @@ ACCESSEOF
     || echo "[admin] WARNING: OPERATOR_TELEGRAM_ID empty — allow-list empty; nobody can DM the admin"
 
   # settings.json (create-or-merge; python3 is in the image).
-  # CRITICAL: do NOT set enabledPlugins for telegram. The channel is activated
-  # purely by `--channels plugin:telegram@...` (same as squad launch.sh). Enabling
-  # the plugin ALSO makes claude load the plugin's MCP server independently, so the
-  # telegram poller is started TWICE on one bot token → the two long-pollers
-  # 409-conflict and crash-loop (the 2026-06-23 "poller never stays up"). We pop it
-  # defensively so a stale enabledPlugins from an older boot can't reintroduce it.
+  # CRITICAL: enabledPlugins.telegram MUST be true AT BOOT for the channel to work.
+  # The earlier "double-poller / 409 crash-loop" premise was FALSIFIED by a
+  # two-arm experiment: `--channels plugin:telegram@...` ALONE only injects channel
+  # messages into the session — it does NOT spawn the plugin's stdio MCP server
+  # (`bun server.ts`). The poller spawns ONLY when enabledPlugins lists the plugin
+  # at boot. Arm A (enabledPlugins.telegram=true + --channels) => exactly ONE stable
+  # poller + /mcp connected; Arm B (popped) => poller NEVER spawned, channel dead.
+  # gonorth's squad runs enabledPlugins.telegram=true + --channels with a single
+  # stable poller (no 409). So we SET the squad's exact key on every boot.
   python3 - "$SETTINGS_JSON" <<'PY'
 import json, os, sys
 p = sys.argv[1]
@@ -171,7 +174,9 @@ try:
     d = json.load(open(p))
 except Exception:
     d = {}
-d.pop("enabledPlugins", None)  # channel comes from --channels, NOT plugin-enable
+ep = d.get("enabledPlugins") or {}
+ep["telegram@claude-plugins-official"] = True  # channel poller spawns ONLY when enabled at boot
+d["enabledPlugins"] = ep
 d["skipDangerousModePermissionPrompt"] = True
 os.makedirs(os.path.dirname(p), exist_ok=True)
 json.dump(d, open(p, "w"), indent=2)
@@ -199,23 +204,32 @@ cat > "$RUN_SCRIPT" <<EOF
 cd /home/ravi/interactive-dev-team
 ${STATE_DIR_EXPORT}
 
-# Reap orphaned Telegram pollers / stray claude left behind between runs. When
-# claude is OOM-killed (SIGKILL), its child \`bun server.ts\` poller is NOT reaped
-# and keeps polling; the old fixed 5s restart loop then spawned a NEW poller each
-# cycle, piling them up into the 2026-06 runaway (54 PIDs, 1.77GB IO, cascade OOM).
-# The image has no pgrep/pkill, so scan /proc by cmdline. Safe because this runs
-# AFTER claude exits, between iterations — no legitimate claude/poller is live then.
+# Reap orphaned Telegram pollers left behind between runs. When claude is
+# OOM-killed (SIGKILL), its child \`bun server.ts\` poller is NOT reaped and keeps
+# polling; the old fixed 5s restart loop then spawned a NEW poller each cycle,
+# piling them up into the 2026-06 runaway (54 PIDs, 1.77GB IO, cascade OOM).
+# The image has no pgrep/pkill, so scan /proc by cmdline. This runs ONLY AFTER
+# claude exits, between iterations (existing after-exit gating), so no legitimate
+# poller is live then. SAFETY (H4 reconcile): match ONLY the telegram plugin's
+# stdio MCP server (\`.../claude-plugins-official/telegram/...server.ts\`) AND only
+# TRUE orphans (PPID==1). The previous bare \`*cli.js*\` / \`*--shell=bun*\` patterns
+# also matched claude itself (claude IS a node cli.js; bun is its runtime) and
+# could kill claude's legitimate, freshly-spawned MCP child — narrowed away.
 reap_orphans() {
-  local pid cmd sig killed=0
+  local pid cmd ppid sig killed=0
   for sig in TERM KILL; do
     for pid in /proc/[0-9]*; do
       pid=\${pid#/proc/}
       [ "\$pid" = "\$\$" ] && continue
       cmd=\$(tr '\0' ' ' < /proc/\$pid/cmdline 2>/dev/null) || continue
       case "\$cmd" in
-        *server.ts*|*claude-plugins-official/telegram*|*--shell=bun*|*cli.js*)
-          kill -\$sig "\$pid" 2>/dev/null && killed=\$((killed+1)) ;;
+        *claude-plugins-official/telegram/*server.ts*) ;;   # only the TG MCP server
+        *) continue ;;
       esac
+      # Only reap TRUE orphans (re-parented to PID 1); never a live claude child.
+      ppid=\$(awk '{print \$4}' /proc/\$pid/stat 2>/dev/null) || continue
+      [ "\$ppid" = "1" ] || continue
+      kill -\$sig "\$pid" 2>/dev/null && killed=\$((killed+1))
     done
     [ "\$sig" = TERM ] && killed=0 && sleep 1   # give TERM a moment; recount on KILL pass
   done
