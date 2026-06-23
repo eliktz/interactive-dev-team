@@ -163,20 +163,53 @@ cat > "$RUN_SCRIPT" <<EOF
 #!/usr/bin/env bash
 cd /home/ravi/interactive-dev-team
 ${STATE_DIR_EXPORT}
+
+# Reap orphaned Telegram pollers / stray claude left behind between runs. When
+# claude is OOM-killed (SIGKILL), its child \`bun server.ts\` poller is NOT reaped
+# and keeps polling; the old fixed 5s restart loop then spawned a NEW poller each
+# cycle, piling them up into the 2026-06 runaway (54 PIDs, 1.77GB IO, cascade OOM).
+# The image has no pgrep/pkill, so scan /proc by cmdline. Safe because this runs
+# AFTER claude exits, between iterations — no legitimate claude/poller is live then.
+reap_orphans() {
+  local pid cmd sig killed=0
+  for sig in TERM KILL; do
+    for pid in /proc/[0-9]*; do
+      pid=\${pid#/proc/}
+      [ "\$pid" = "\$\$" ] && continue
+      cmd=\$(tr '\0' ' ' < /proc/\$pid/cmdline 2>/dev/null) || continue
+      case "\$cmd" in
+        *server.ts*|*claude-plugins-official/telegram*|*--shell=bun*|*cli.js*)
+          kill -\$sig "\$pid" 2>/dev/null && killed=\$((killed+1)) ;;
+      esac
+    done
+    [ "\$sig" = TERM ] && killed=0 && sleep 1   # give TERM a moment; recount on KILL pass
+  done
+  echo "[admin] orphan reap pass complete"
+}
+
 RESUME="--continue"
+BACKOFF=5
 while true; do
   echo "[admin] Starting Claude Code (model: ${MODEL})\${RESUME:+ [resuming previous session]}..."
   START_TS=\$(date +%s)
   claude \$RESUME --dangerously-skip-permissions --model ${MODEL} ${PERSONA_FLAG}${CHANNELS_FLAG}
   RAN_FOR=\$(( \$(date +%s) - START_TS ))
+  # ALWAYS reap before relaunching so a leaked poller can't accumulate.
+  reap_orphans
   if [ "\$RAN_FOR" -lt 15 ]; then
-    echo "[admin] exited after \${RAN_FOR}s — will start FRESH next round"
+    # Rapid exit = crash/OOM. Start FRESH (drop --continue) and back off
+    # exponentially (5→10→…→300s cap) so a crash-loop can't spin every 5s and
+    # leak/contend its way into a runaway. Healthy runs reset the backoff.
     RESUME=""
+    echo "[admin] exited after \${RAN_FOR}s (crash?) — fresh start; backing off \${BACKOFF}s"
+    sleep "\$BACKOFF"
+    BACKOFF=\$(( BACKOFF * 2 )); [ "\$BACKOFF" -gt 300 ] && BACKOFF=300
   else
     RESUME="--continue"
+    BACKOFF=5
+    echo "[admin] Claude Code exited after \${RAN_FOR}s. Restarting in 5s..."
+    sleep 5
   fi
-  echo "[admin] Claude Code exited. Restarting in 5s..."
-  sleep 5
 done
 EOF
 chmod +x "$RUN_SCRIPT"
