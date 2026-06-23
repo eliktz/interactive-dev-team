@@ -100,6 +100,35 @@ elif [ ! -f "$PERSONA_DIR/CLAUDE.md" ]; then
   echo "[admin] WARNING: no persona CLAUDE.md and no $PERSONA — starting without persona"
 fi
 
+# --- Onboarding bypass (mirrors squad launch.sh; CRITICAL for Telegram) -------
+# ~/.claude.json holds theme + onboarding + trust state, but it lives at
+# $HOME/.claude.json which is OUTSIDE the persistent volume (only $HOME/.claude is
+# mounted). So it resets on every recreate and claude re-shows the first-run
+# wizard (theme picker) and hangs at that gate — never reaching the main loop, so
+# the Telegram channel poller never starts (the recurring "poller dead"). Seed the
+# onboarding/theme/bypass flags + pre-trust the working dirs each boot, merging
+# into the existing file so OAuth (oauthAccount/.credentials) is preserved.
+python3 - "$HOME/.claude.json" /home/ravi/interactive-dev-team "$PERSONA_DIR" <<'PY'
+import json, os, sys
+p = sys.argv[1]; dirs = [d for d in sys.argv[2:] if d]
+try:
+    d = json.load(open(p))
+except Exception:
+    d = {}
+d["theme"] = d.get("theme") or "dark"
+d["hasCompletedOnboarding"] = True
+d["bypassPermissionsModeAccepted"] = True
+proj = d.setdefault("projects", {})
+for dir in dirs:
+    cur = proj.get(dir, {})
+    cur["hasTrustDialogAccepted"] = True
+    cur["hasCompletedProjectOnboarding"] = True
+    proj[dir] = cur
+os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+json.dump(d, open(p, "w"), indent=2)
+print("[admin] seeded onboarding/theme/trust in", p)
+PY
+
 # --- Telegram channel (optional; mirrors launch.sh) --------------------------
 # When ADMIN_TELEGRAM_TOKEN is set, wire the official Telegram plugin scoped to
 # this single admin agent. SECURITY: the admin is root-equivalent on the VM, so
