@@ -56,10 +56,16 @@ SUFFIX="$$-$RANDOM"
 TARGET="m5-exec-test-target-$SUFFIX"
 PROXY="m5-exec-test-proxy-$SUFFIX"
 PROXY_ACL="m5-exec-test-proxy-acl-$SUFFIX"
+PROXY_ADMIN="m5-exec-test-proxy-admin-$SUFFIX"
 # Deliberately NEVER created: a 404 on it would mean the request leaked
 # through the ACL to dockerd; the proxy must answer 403 itself.
 DECOY="m5-exec-test-decoy-$SUFFIX"
 ACL_CFG="$PROJECT_DIR/deploy/docker-proxy/haproxy.cfg"
+ADMIN_CFG="$PROJECT_DIR/deploy/docker-proxy/haproxy.admin.cfg"
+# Throwaway resources created+deleted THROUGH the admin proxy (DELETE path proof).
+ADMIN_NET_PROBE="m5-admin-probe-ctr-$SUFFIX"
+ADMIN_NET_PROBE_NET="m5-admin-probe-net-$SUFFIX"
+ADMIN_VOL_PROBE="m5-admin-probe-vol-$SUFFIX"
 ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-30}"
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/m5-exec-test.XXXXXX")"
@@ -69,6 +75,10 @@ cleanup() {
   docker rm -f "$TARGET" >/dev/null 2>&1 || true
   docker rm -f "$PROXY" >/dev/null 2>&1 || true
   docker rm -f "$PROXY_ACL" >/dev/null 2>&1 || true
+  docker rm -f "$PROXY_ADMIN" >/dev/null 2>&1 || true
+  docker rm -f "$ADMIN_NET_PROBE" >/dev/null 2>&1 || true
+  docker volume rm -f "$ADMIN_VOL_PROBE" >/dev/null 2>&1 || true
+  docker network rm "$ADMIN_NET_PROBE_NET" >/dev/null 2>&1 || true
   rm -rf "$WORK_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
@@ -258,9 +268,81 @@ else
 fi
 note "ACL stage: $ACL_VERDICT (allowed inspect=$ACL_ALLOW_CODE foreign inspect=$ACL_DENY_CODE create=$ACL_CREATE_CODE exec=$ACL_EXEC_VERDICT)"
 
+# --- 4) admin-ACL stage: the BROAD admin cfg (no name regex) --------------------
+# Mirrors the admin-docker-proxy service: deploy/docker-proxy/haproxy.admin.cfg
+# mounted over the image template, broad allow set, NO SQUAD_EXEC_ALLOW_REGEX.
+# Proves what the squad ACL stage cannot: the admin legitimately CREATES and (via
+# `compose down -v`) DELETES containers/networks/volumes — so we assert the FULL
+# create->DELETE round-trip returns 2xx (not just create=201), AND that BUILD +
+# the host-takeover surface stay 403 (review suggestion #5, plan §2.2).
+ADMIN_VERDICT="SKIP"
+ADMIN_BUILD_CODE="-" ADMIN_SWARM_CODE="-" ADMIN_SECRETS_CODE="-"
+ADMIN_CTR_CREATE_CODE="-" ADMIN_CTR_DELETE_CODE="-"
+ADMIN_NET_CREATE_CODE="-" ADMIN_NET_DELETE_CODE="-"
+ADMIN_VOL_CREATE_CODE="-" ADMIN_VOL_DELETE_CODE="-"
+if [ ! -f "$ADMIN_CFG" ]; then
+  note "TEST 4/4: admin-ACL stage SKIPPED (missing $ADMIN_CFG)"
+else
+  note "TEST 4/4: admin-ACL stage (broad cfg, no name regex; create + compose-down-v DELETE path)"
+  FREE_PORT_ADMIN="$(free_port)"
+  docker run -d --name "$PROXY_ADMIN" \
+    -e CONTAINERS=1 -e EXEC=1 -e POST=1 -e NETWORKS=1 -e VOLUMES=1 -e IMAGES=1 \
+    -p "127.0.0.1:$FREE_PORT_ADMIN:2375" \
+    -v "$ADMIN_CFG":/usr/local/etc/haproxy/haproxy.cfg.template:ro \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    "$PROXY_IMAGE" >/dev/null
+  note "waiting for admin proxy readiness (GET /_ping)"
+  wait_ping "$FREE_PORT_ADMIN" "admin proxy"
+
+  admin_url="tcp://127.0.0.1:$FREE_PORT_ADMIN"
+
+  # --- DENY assertions (raw HTTP, no docker CLI needed) ---------------------
+  acode() { # acode METHOD PATH -> HTTP status (000 on connection failure)
+    curl -s -o /dev/null -w '%{http_code}' -X "$1" "http://127.0.0.1:$FREE_PORT_ADMIN$2" 2>/dev/null || echo 000
+  }
+  ADMIN_BUILD_CODE="$(acode POST "/build")"             # expect 403 (out-of-band)
+  ADMIN_SWARM_CODE="$(acode POST "/swarm/init")"        # expect 403 (host-takeover)
+  ADMIN_SECRETS_CODE="$(acode POST "/secrets/create")"  # expect 403 (host-takeover)
+
+  # --- ALLOW + DELETE round-trip via the docker CLI through the admin proxy ---
+  # container create -> start -> DELETE (force) ; network create -> DELETE ;
+  # volume create -> DELETE. Each `docker rc==0` proves the proxy returned 2xx
+  # for both the create and the DELETE (the destructive surface squadctl uses).
+  ok2xx() { [ "$1" = "0" ] && echo "2xx" || echo "ERR"; }
+
+  ( export DOCKER_HOST="$admin_url"
+    docker create --name "$ADMIN_NET_PROBE" "$TARGET_IMAGE" sh -c 'sleep 60' >/dev/null 2>&1
+  ) ; ADMIN_CTR_CREATE_CODE="$(ok2xx $?)"
+  ( export DOCKER_HOST="$admin_url"; docker rm -f "$ADMIN_NET_PROBE" >/dev/null 2>&1
+  ) ; ADMIN_CTR_DELETE_CODE="$(ok2xx $?)"
+
+  ( export DOCKER_HOST="$admin_url"; docker network create "$ADMIN_NET_PROBE_NET" >/dev/null 2>&1
+  ) ; ADMIN_NET_CREATE_CODE="$(ok2xx $?)"
+  ( export DOCKER_HOST="$admin_url"; docker network rm "$ADMIN_NET_PROBE_NET" >/dev/null 2>&1
+  ) ; ADMIN_NET_DELETE_CODE="$(ok2xx $?)"
+
+  ( export DOCKER_HOST="$admin_url"; docker volume create "$ADMIN_VOL_PROBE" >/dev/null 2>&1
+  ) ; ADMIN_VOL_CREATE_CODE="$(ok2xx $?)"
+  ( export DOCKER_HOST="$admin_url"; docker volume rm -f "$ADMIN_VOL_PROBE" >/dev/null 2>&1
+  ) ; ADMIN_VOL_DELETE_CODE="$(ok2xx $?)"
+
+  if [ "$ADMIN_BUILD_CODE" = "403" ] && [ "$ADMIN_SWARM_CODE" = "403" ] \
+     && [ "$ADMIN_SECRETS_CODE" = "403" ] \
+     && [ "$ADMIN_CTR_CREATE_CODE" = "2xx" ] && [ "$ADMIN_CTR_DELETE_CODE" = "2xx" ] \
+     && [ "$ADMIN_NET_CREATE_CODE" = "2xx" ] && [ "$ADMIN_NET_DELETE_CODE" = "2xx" ] \
+     && [ "$ADMIN_VOL_CREATE_CODE" = "2xx" ] && [ "$ADMIN_VOL_DELETE_CODE" = "2xx" ]; then
+    ADMIN_VERDICT="PASS"
+  else
+    ADMIN_VERDICT="FAIL"
+  fi
+  note "admin-ACL stage: $ADMIN_VERDICT (build=$ADMIN_BUILD_CODE swarm=$ADMIN_SWARM_CODE secrets=$ADMIN_SECRETS_CODE ctr=$ADMIN_CTR_CREATE_CODE/$ADMIN_CTR_DELETE_CODE net=$ADMIN_NET_CREATE_CODE/$ADMIN_NET_DELETE_CODE vol=$ADMIN_VOL_CREATE_CODE/$ADMIN_VOL_DELETE_CODE)"
+fi
+
 # --- verdict --------------------------------------------------------------------
+# admin-ACL stage joins the gate; SKIP (missing cfg) does NOT fail the overall run.
 if [ "$TTY_VERDICT" = "PASS" ] && [ "$PLAIN_VERDICT" = "PASS" ] \
-   && [ "$ACL_VERDICT" = "PASS" ]; then
+   && [ "$ACL_VERDICT" = "PASS" ] \
+   && { [ "$ADMIN_VERDICT" = "PASS" ] || [ "$ADMIN_VERDICT" = "SKIP" ]; }; then
   VERDICT="PASS"
 else
   VERDICT="FAIL"
@@ -294,6 +376,13 @@ cat >"$RESULT_MD" <<EOF
 | — foreign-name inspect (expect 403; 404 = leaked to dockerd) | $ACL_DENY_CODE |
 | — \`POST /containers/create\` (expect 403) | $ACL_CREATE_CODE |
 | — allowed-name \`docker exec -i\` round-trip via ACL cfg | $ACL_EXEC_VERDICT |
+| Admin-ACL stage (broad \`deploy/docker-proxy/haproxy.admin.cfg\`, no name regex) | $ADMIN_VERDICT |
+| — \`POST /build\` (expect 403; builds go out-of-band) | $ADMIN_BUILD_CODE |
+| — \`POST /swarm/init\` (expect 403) | $ADMIN_SWARM_CODE |
+| — \`POST /secrets/create\` (expect 403) | $ADMIN_SECRETS_CODE |
+| — container create → DELETE (\`compose down -v\`; expect 2xx/2xx) | $ADMIN_CTR_CREATE_CODE / $ADMIN_CTR_DELETE_CODE |
+| — network create → DELETE (expect 2xx/2xx) | $ADMIN_NET_CREATE_CODE / $ADMIN_NET_DELETE_CODE |
+| — volume create → DELETE (expect 2xx/2xx) | $ADMIN_VOL_CREATE_CODE / $ADMIN_VOL_DELETE_CODE |
 
 Produced by \`scripts/test-socket-proxy-exec.sh\` against LOCAL docker only
 (never the VM). Method: throwaway alpine target + Tecnativa
@@ -366,5 +455,5 @@ fi
 } >>"$RESULT_MD"
 
 note "wrote $RESULT_MD"
-note "VERDICT: $VERDICT (tty=$TTY_VERDICT, non-tty=$PLAIN_VERDICT, acl=$ACL_VERDICT)"
+note "VERDICT: $VERDICT (tty=$TTY_VERDICT, non-tty=$PLAIN_VERDICT, acl=$ACL_VERDICT, admin=$ADMIN_VERDICT)"
 exit 0

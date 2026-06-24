@@ -31,6 +31,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from .agent_registry import get_agent
 from .auth import ws_basic_auth
 from .tmux_bridge import manager as tmux_manager
+from .tmux_bridge import touch_client
 from .yefet_bridge import YefetBusSession
 
 log = logging.getLogger(__name__)
@@ -110,6 +111,10 @@ async def _pump_ws_to_pty(ws: WebSocket, agent_id: str, session) -> None:
                         await session.request_redraw()
                     except Exception:
                         pass
+            elif ftype == "hb":
+                # Liveness heartbeat — refresh this WS's entry so the periodic
+                # sweep keeps its tmux client-session (alive even if quiet/paused).
+                touch_client(getattr(session, "_linked", None))
             elif ftype == "ack":
                 continue
             else:

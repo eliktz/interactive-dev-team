@@ -11,6 +11,7 @@ Wires:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -70,9 +71,45 @@ async def _lifespan(app: FastAPI):
                 await reap_all_client_sessions(a.container, base)
     except Exception as e:  # best effort — never block startup
         log.warning("startup client-session reap skipped: %s", e)
-    yield
-    await tmux_manager.close_all()
-    log.info("warroom2 stopped")
+
+    # Periodic sweep: continuously reap orphan `<base>-cli-*` client sessions
+    # whose WS heartbeat has gone stale (the boot reap above only runs once, so
+    # phantom clients left by tunnel-drop reconnects re-accumulate and corrupt
+    # window geometry between restarts — the recurring "type, see it only after
+    # refresh" bug). Keyed on heartbeat liveness, so live/paused tabs are safe.
+    sweep_task = asyncio.create_task(_sweep_loop())
+    try:
+        yield
+    finally:
+        sweep_task.cancel()
+        try:
+            await sweep_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        await tmux_manager.close_all()
+        log.info("warroom2 stopped")
+
+
+async def _sweep_loop(interval_s: float = 45.0) -> None:
+    """Reap stale tmux client-sessions across all tmux agents on an interval."""
+    from .agent_registry import list_agents
+    from .tmux_bridge import sweep_stale_clients
+    while True:
+        try:
+            await asyncio.sleep(interval_s)
+            seen = set()
+            for a in list_agents():
+                if a.attach == "tmux" and a.tmux_target and a.container:
+                    base = a.tmux_target.split(":", 1)[0]
+                    key = (a.container, base)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    await sweep_stale_clients(a.container, base)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # never let the loop die
+            log.warning("client-session sweep iteration failed: %s", e)
 
 
 def create_app() -> FastAPI:

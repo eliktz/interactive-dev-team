@@ -106,6 +106,12 @@ squad ports loopback-bound it is reachable only through the SSH tunnel.
 (`ssh -L 7682:127.0.0.1:7682 <vm-user>@<vm-host>`) — raw ports are in each squad's
 `.env` and printed by `./squadctl url <slug>`.
 
+**Admin console:** the optional cross-squad admin console is reached the same way —
+`http://admin.localhost:8800` over this same tunnel (its dashboard binds
+`127.0.0.1:7900`, wired by an **explicit** `import /srv/platform-admin/caddy.snippet`
+in the same `:8800` site block, separate from the squad glob). See
+[docs/ADMIN_CONSOLE.md](ADMIN_CONSOLE.md).
+
 ---
 
 ## 3. Onboarding a squad
@@ -126,17 +132,30 @@ Telegram token + group ID, and runs the **staged bring-up**:
 3. `up -d --no-deps war-room warroom2` — war-room boots with the company ID already
    in its env; `--no-deps` keeps stage 3 from chain-recreating paperclip
 
-**Paperclip deployment mode (E2E finding F4):** squad paperclips default to
-`PAPERCLIP_DEPLOYMENT_MODE=local_trusted` (set in the squad `.env` from the template) —
-required for stage 2 to work at all: in `authenticated` mode a fresh instance has zero
-instance admins and `setup-company.sh`'s unauthenticated `/api/companies` calls 403
-(bootstrap would need the full sign-up → bootstrap-CEO invite → accept dance). This is
-security-equivalent at squad exposure: every squad port binds `127.0.0.1` only, behind
-the SSH tunnel. Set `authenticated` ONLY for instances exposed beyond loopback —
-tenant #1 (`gonorth`, public `paperclip.tlk.solutions`) pins it in its `.env`.
-`setup-company.sh` sends `Origin == Host` on every call (paperclip's board-mutation
-guard requires it), so it also works against already-bootstrapped authenticated
-instances given a valid session.
+**Paperclip deployment mode (E2E Defect #3 fix):** squad paperclips default to
+`PAPERCLIP_DEPLOYMENT_MODE=authenticated` (set in the squad `.env` from the template,
+matching live squads `gonorth`/`probe`). This is the ONLY mode compatible with the
+container topology: `docker-compose.yml` binds the paperclip process to `HOST=0.0.0.0`
+so the published `127.0.0.1:<pc_port>:3100` forward can reach it, and paperclip
+**rejects** `local_trusted` on a non-loopback bind (`local_trusted mode requires
+loopback host binding (received: 0.0.0.0)`) — that combination crash-loops a fresh
+squad's paperclip. Binding `127.0.0.1` *inside* the container (what `local_trusted`
+forces) makes the process unreachable through the published port, so `local_trusted`
+cannot satisfy reachability either.
+
+A fresh `authenticated` instance starts with zero instance admins
+(`bootstrapStatus=bootstrap_pending`) and 403s unauthenticated `/api/companies` calls,
+so **stage 2 (`setup-company.sh`) now bootstraps the first instance admin itself**,
+entirely from inside the squad and over supported surfaces: it creates a one-time
+`bootstrap_ceo` invite via paperclip's own `@paperclipai/db` module (run inside the
+paperclip container — the same insert the bundled `paperclipai auth-bootstrap-ceo` CLI
+performs), signs up an admin user (`POST /api/auth/sign-up/email`, credential generated
+locally and recorded in `private/paperclip-admin.env`, mode 0600), then accepts the
+invite (`POST /api/invites/<token>/accept`) to promote that user — flipping
+`bootstrapStatus` to `ready`. It then registers the company/agents with the admin
+session cookie. The step is idempotent (skipped when health already reports `ready`)
+and a no-op for any legacy `local_trusted` instance. `setup-company.sh` also sends
+`Origin == Host` on every call (paperclip's board-mutation guard requires it).
 
 Full fresh-host walkthrough (prerequisites, what to fill, what's not in the repo):
 [REPRODUCING.md](../REPRODUCING.md).
@@ -238,7 +257,8 @@ over env).
 ```bash
 ./squadctl ls          # slug → ports → URLs → running-count, plus docker compose ls
 ./squadctl doctor      # snippets↔.env drift, loopback listeners, 0.0.0.0 binds,
-                       # container health, the 4 platform containers, disk/RAM headroom
+                       # container health, the load-bearing platform containers
+                       # (4 base + 3 admin when the admin console runs), disk/RAM headroom
 ```
 
 ---
@@ -262,8 +282,8 @@ over env).
 > **NEVER pass `--remove-orphans` to any compose command on this VM. Not once. Not
 > "to clean up".**
 
-Four containers on the VM are **orphans by compose's definition but load-bearing in
-production** — they belong to no current compose service yet the platform depends on
+Several containers on the VM are **orphans by compose's definition but load-bearing in
+production** — they belong to no *squad* compose service yet the platform depends on
 them:
 
 1. `openclaw` (`interactive-dev-team-openclaw-1`) — yefet; the host cron execs into it
@@ -273,10 +293,20 @@ them:
 4. `deploy-webhook` — host Caddy routes `:80/bitbucket` to it (port 9000); Bitbucket
    pushes stop deploying the moment it dies.
 
-A single compose call carrying `--remove-orphans` deletes all four. The flag appears
-nowhere in `squadctl` by construction (`grep -c 'remove-orphans' squadctl` → 0 is a
-release gate), and `./squadctl doctor` verifies the four are still running. Follow-up (out of scope here):
-adopt them into a dedicated `platform` compose project so the trap ceases to exist.
+When the [admin console](ADMIN_CONSOLE.md) is running, three more join the load-bearing
+set (in their own `platform-admin` compose project, so squad-scoped calls never see them):
+
+5. `platform-admin` — the admin agent (`squadctl` + Docker reach).
+6. `admin-docker-proxy` — the admin's broad socket-proxy.
+7. `admin-warroom2` — the admin dashboard tab.
+
+A single squad-scoped compose call carrying `--remove-orphans` deletes all of these. The
+flag appears nowhere in `squadctl` by construction (`grep -c 'remove-orphans' squadctl` → 0
+is a release gate), and `./squadctl doctor` verifies the load-bearing set (the 4 base + the
+3 admin when present, via `SQUADCTL_PLATFORM_CONTAINERS`) is still running. The admin project
+deliberately lives in its own compose project — never bring it up with `--remove-orphans`
+either. Follow-up (out of scope here): adopt the base four into a dedicated `platform`
+compose project so the trap ceases to exist.
 
 ---
 

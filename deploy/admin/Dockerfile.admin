@@ -1,0 +1,134 @@
+# =============================================================================
+# Dockerfile.admin — platform ADMIN war-room console agent image
+#
+# A single Claude Code admin agent in tmux with `squadctl` + Docker reach, used
+# to CREATE new companies and DEBUG/FIX any squad from one screen. Mirrors the
+# squad war-room Dockerfile's Claude-install discipline (native installer AS the
+# run user so auto-update works — never `npm -g` as root), plus the Docker CLI +
+# compose plugin so `squadctl`/`docker compose` work against DOCKER_HOST.
+#
+# Built OUT-OF-BAND on the host (deploy/admin/bin/admin-host-build.sh) and
+# shared as warroom/platform-admin:latest. The agent runs SQUADCTL_NO_BUILD=1,
+# so no `--build` is ever issued through the BUILD-denied admin socket-proxy.
+#
+# Build:  docker compose -p platform-admin \
+#           -f deploy/admin/docker-compose.admin.yml build
+# Run:    via deploy/admin/docker-compose.admin.yml (project `platform-admin`)
+#
+# NOTE: container names platform-admin, admin-docker-proxy, admin-warroom2 must
+# be added to SQUADCTL_PLATFORM_CONTAINERS so `squadctl doctor` tracks them and
+# no squad-scoped compose call can ever see them.
+# =============================================================================
+
+FROM node:22-slim
+
+# --- system deps ---
+# openssl/git/curl/python3/jq/tmux back squadctl's secret generation,
+# health-checks and tmux session. The Docker CLI (`docker`) + compose v2 plugin
+# (`docker compose`) are NOT in the Debian base apt sources — `docker-ce-cli`
+# and `docker-compose-plugin` ship only from Docker's official apt repo, which
+# we add below. (The Debian `docker.io` package omits the compose v2 plugin.)
+# The daemon is NEVER run inside — only the CLI talks to DOCKER_HOST.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tmux \
+      curl \
+      git \
+      ca-certificates \
+      openssl \
+      python3 \
+      jq \
+      gnupg \
+      unzip \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+         -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
+         > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+      docker-ce-cli \
+      docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- create non-root run user ---
+# CRITICAL: Claude Code refuses --dangerously-skip-permissions when running as
+# root, and the admin agent runs skip-permissions (locked decision 3).
+RUN useradd -m -s /bin/bash admin
+
+# --- host docker gid (raw-socket fallback ONLY) ---
+# Under the default Option A (DOCKER_HOST=tcp://127.0.0.1:2380 socket-proxy) the
+# admin needs NO docker group — it never touches a host socket fd. The ARG +
+# group are exercised only on the raw-socket fallback (see docs/ADMIN_CONSOLE.md
+# / plan §2.3) where /var/run/docker.sock is mounted into the admin directly.
+ARG DOCKER_GID=999
+
+# --- install Bun (required by the Telegram plugin's channel server) + Claude CLI ---
+# Bun: the telegram@claude-plugins-official channel runs server.ts via `bun`
+# (grammy). Without it the channel never starts (no bot.pid, no polling) — the
+# war-room image installs it for the same reason. Claude: native installer AS the
+# run user (~/.local/share/claude) so the auto-updater can write to its own
+# install (a root-owned `npm -g` pins the version forever — EACCES for the uid).
+USER admin
+RUN curl -fsSL https://bun.sh/install | bash
+RUN curl -fsSL https://claude.ai/install.sh | bash
+# PIN claude to 2.1.179. The native installer pulls LATEST, and claude 2.1.186
+# regressed the Telegram channel MCP server: server.ts crash-loops and never holds
+# a steady long-poll (the squad war-room runs the SAME plugin 0.0.6 fine on 2.1.179).
+# Pin to the known-good version the squads run; revisit when a later claude fixes
+# the channel. Paired with ENV DISABLE_AUTOUPDATER=1 below so it can't drift back.
+RUN /home/admin/.local/bin/claude install 2.1.179 --force
+USER root
+
+# Keep `claude` resolvable from the original PATH (tmux server env, scripts).
+RUN ln -sfn /home/admin/.local/bin/claude /usr/local/bin/claude
+
+# --- squadctl on PATH — points into the READ-ONLY repo mount ---
+# squadctl derives REPO_ROOT from BASH_SOURCE (so COMPOSE_FILE = REPO_ROOT/
+# docker-compose.yml), so we symlink to the mounted copy rather than baking a
+# stale copy into the image. FIX (defect #2): the repo is mounted read-only at
+# the SAME ABSOLUTE host path it has on the VM (/home/ravi/interactive-dev-team,
+# see docker-compose.admin.yml) so the squad compose's RELATIVE host binds
+# (e.g. ./scripts) resolve to real host paths when the daemon (= the host)
+# applies them. The symlink + REPO_ROOT must therefore live under that path.
+RUN ln -sfn /home/ravi/interactive-dev-team/squadctl /usr/local/bin/squadctl
+
+# --- FIX #3: tmux base-index 1 ---
+# The war-room Dockerfile copies tmux.conf (which sets `base-index 1`) into the
+# run user's home; the admin image MUST do the same or `tmux new-session` makes
+# window 0 while agents.json/warroom2 expect window 1 -> permanently _stale tab.
+# Copied from the repo build context (root tmux.conf).
+COPY --chown=admin:admin tmux.conf /home/admin/.tmux.conf
+
+# --- entrypoint ---
+COPY deploy/admin/entrypoint.admin.sh /usr/local/bin/entrypoint.admin.sh
+RUN chmod +x /usr/local/bin/entrypoint.admin.sh
+
+# --- environment ---
+ENV CLAUDE_CODE_ENABLE_TELEMETRY=0
+# Hold the pinned 2.1.179 (see claude install above) — the auto-updater would
+# otherwise upgrade to latest on first run and reintroduce the channel regression.
+ENV DISABLE_AUTOUPDATER=1
+ENV TERM=xterm-256color
+ENV LANG=C.utf8
+ENV LC_ALL=C.utf8
+ENV COLORTERM=truecolor
+ENV FORCE_COLOR=3
+ENV PATH="/home/admin/.local/bin:/home/admin/.bun/bin:${PATH}"
+
+# --- verify installation ---
+RUN claude --version
+
+# --- working directory: the read-only repo mount (squadctl's REPO_ROOT) ---
+# FIX (defect #2): host-path parity so `docker compose` relative binds resolve.
+WORKDIR /home/ravi/interactive-dev-team
+
+# --- switch to non-root run user ---
+USER admin
+
+# --- health check: verify the admin tmux session exists ---
+# Session name defaults to `war-room` (ADMIN_TMUX_SESSION) to match warroom2's
+# WARROOM2_TMUX_SESSION.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD tmux has-session -t "${ADMIN_TMUX_SESSION:-war-room}" 2>/dev/null || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.admin.sh"]

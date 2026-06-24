@@ -37,12 +37,23 @@ PORT_BASE_START=7700
 PORT_BASE_STEP=100
 
 # Load-bearing out-of-project containers `doctor` verifies (platform VM only).
-PLATFORM_CONTAINERS="${SQUADCTL_PLATFORM_CONTAINERS:-openclaw agency-tick claim-watcher deploy-webhook}"
+# Includes the three platform-ADMIN containers (own compose project
+# `platform-admin`) so doctor tracks them and no squad-scoped compose call ever
+# sees them. Override via SQUADCTL_PLATFORM_CONTAINERS on a non-admin host.
+PLATFORM_CONTAINERS="${SQUADCTL_PLATFORM_CONTAINERS:-openclaw agency-tick claim-watcher deploy-webhook platform-admin admin-docker-proxy admin-warroom2}"
 
 # --- flags (every prompt has one; defaults overridable via env) --------------
 SQUADS_ROOT="${SQUADCTL_SQUADS_ROOT:-/srv/squads}"
 NO_INPUT=0
 NO_UP=0
+# --no-build (FIX #1): when set, staged bring-up + upgrade run `up -d` WITHOUT
+# `--build` and upgrade SKIPS its `compose build` stage. Images must already
+# exist (built OUT-OF-BAND on the host by deploy/admin/bin/admin-host-build.sh).
+# Defaulted from SQUADCTL_NO_BUILD so the platform-admin container (which exports
+# SQUADCTL_NO_BUILD=1 and reaches a BUILD-denied socket-proxy) is build-free
+# without passing the flag on every call. Accepts 1/true/yes (any other value or
+# unset = build as before — behavior is IDENTICAL when neither flag nor env is set).
+case "${SQUADCTL_NO_BUILD:-}" in 1|true|yes|TRUE|YES) NO_BUILD=1 ;; *) NO_BUILD=0 ;; esac
 KEEP_DATA=0
 FORCE=0
 ALL=0
@@ -87,6 +98,11 @@ Verbs:
 Flags:
   --no-input             Never prompt; fail (or skip optional input) instead
   --no-up                'new': scaffold only, skip the staged bring-up
+  --no-build             'new'/'upgrade': use prebuilt images — run 'up -d'
+                         WITHOUT --build and skip 'compose build'. Default from
+                         SQUADCTL_NO_BUILD=1 (the platform-admin container sets
+                         it; images are built out-of-band on the host by
+                         deploy/admin/bin/admin-host-build.sh).
   --port-base N          'new': pin the port block (default: next free block)
   --token-file PATH      'new': read the captain Telegram token from a file
                          (secrets are never accepted as argv — ps-visible)
@@ -159,8 +175,30 @@ require_docker() {
 }
 
 # Every compose call is squad-scoped: -p <slug> --env-file <squad .env>.
+#
+# Defect #4 (env-leak): Docker Compose precedence is `process environment` >
+# `--env-file`. When squadctl runs from INSIDE the platform-admin container, the
+# admin's own shell carries the dashboard-scoped vars (SQUAD_DASH_PORT=7900,
+# WARROOM2_* = Admin's values, etc., loaded from /srv/platform-admin/.env via the
+# service env_file). Those inherited vars would OVERRIDE the squad's rendered .env
+# — e.g. the squad's warroom2 tried to bind the admin's 7900 instead of its 7801.
+# Defense: run compose with a CLEAN sub-environment for the squad-scoped
+# namespaces so the squad's --env-file authoritatively wins for EVERY collision
+# (not just the port). We strip the SQUAD_* and WARROOM2_* namespaces plus
+# COMPOSE_PROJECT_NAME (we pass -p explicitly). squadctl's OWN controls
+# (DOCKER_HOST, SQUADCTL_*, PATH) are deliberately preserved — they steer how
+# compose talks to the daemon, not what the squad renders.
 squad_compose() {
-  docker compose -p "$SLUG" --env-file "$SQUAD_ENV" -f "$COMPOSE_FILE" "$@"
+  # Capture squadctl's own controls into locals BEFORE the scrub — the
+  # ${!SQUAD_@} glob would otherwise unset SQUAD_ENV itself, and dereferencing
+  # it afterwards aborts under `set -u` (Defect #5 regression).
+  local _ef="$SQUAD_ENV" _slug="$SLUG" _cf="$COMPOSE_FILE"
+  (
+    unset COMPOSE_PROJECT_NAME
+    unset "${!SQUAD_@}"      # SQUAD_DASH_PORT, SQUAD_PORT_BASE, SQUAD_HOME, ...
+    unset "${!WARROOM2_@}"   # WARROOM2_BASIC_AUTH_*, WARROOM2_COMPANY_NAME, ...
+    docker compose -p "$_slug" --env-file "$_ef" -f "$_cf" "$@"
+  )
 }
 
 list_squads() {
@@ -398,8 +436,13 @@ cmd_new() {
 
   # --- staged bring-up -------------------------------------------------------
   if [ "$NO_UP" -eq 1 ]; then
+    # FIX #1 completeness: under --no-build the printed manual commands must NOT
+    # print `--build`, or a copy-paste would reintroduce a proxy BUILD call.
+    local build_word=" --build"
+    [ "$NO_BUILD" -eq 1 ] && build_word=""
     say "Scaffold complete (--no-up). Bring it up later with:"
-    echo "      docker compose -p $slug --env-file $envfile up -d --build paperclip playwright"
+    [ "$NO_BUILD" -eq 1 ] && echo "      # --no-build: images must already exist (host: deploy/admin/bin/admin-host-build.sh)"
+    echo "      docker compose -p $slug --env-file $envfile up -d${build_word} paperclip playwright"
     echo "      $REPO_ROOT/scripts/setup-company.sh --slug $slug --name \"$(display_name_for "$slug")\" --env-file $envfile"
     echo "      docker compose -p $slug --env-file $envfile up -d --no-deps war-room warroom2"
   else
@@ -422,8 +465,18 @@ cmd_new() {
 #            chain-recreating the paperclip that stage 2 just configured.
 staged_bring_up() { # staged_bring_up PAPERCLIP_PORT
   require_docker
-  say "Staged bring-up (1/3): paperclip + playwright"
-  squad_compose up -d --build paperclip playwright
+  # FIX #1: build the image in-line UNLESS --no-build / SQUADCTL_NO_BUILD is set
+  # (the admin runs build-free against a BUILD-denied proxy; images are prebuilt
+  # out-of-band on the host by admin-host-build.sh). A plain string (not an
+  # array) so an empty value is safe to expand under `set -u` on every bash
+  # (bash 3.2 errors on "${empty[@]}"); --build is a single token, no quoting risk.
+  if [ "$NO_BUILD" -eq 1 ]; then
+    say "Staged bring-up (1/3): paperclip + playwright (--no-build: using prebuilt images)"
+    squad_compose up -d paperclip playwright
+  else
+    say "Staged bring-up (1/3): paperclip + playwright"
+    squad_compose up -d --build paperclip playwright
+  fi
   wait_paperclip_health "$1"
   say "Staged bring-up (2/3): registering Paperclip company '$SLUG'"
   "$REPO_ROOT/scripts/setup-company.sh" --slug "$SLUG" \
@@ -531,10 +584,18 @@ cmd_upgrade() {
   fi
 
   # Build once — image tags are shared across squads (warroom/<svc>:latest),
-  # so one build serves the whole fleet.
+  # so one build serves the whole fleet. FIX #1: under --no-build /
+  # SQUADCTL_NO_BUILD, SKIP this stage entirely — images are (re)built OUT-OF-BAND
+  # on the host (admin-host-build.sh) before an upgrade, and the admin's proxy
+  # denies BUILD. The rolling `up -d` stages below carry no --build either.
   load_squad "$first_slug"
-  say "Building images once (shared warroom/<service>:latest tags)"
-  squad_compose build
+  if [ "$NO_BUILD" -eq 1 ]; then
+    say "--no-build: skipping the build stage — using prebuilt warroom/<service>:latest images"
+    say "          (rebuild on the HOST first if needed: deploy/admin/bin/admin-host-build.sh)"
+  else
+    say "Building images once (shared warroom/<service>:latest tags)"
+    squad_compose build
+  fi
 
   if [ "$ALL" -eq 1 ]; then
     local s
@@ -682,6 +743,18 @@ cmd_doctor() {
   [ -d "$SQUADS_ROOT" ] || die "squads root not found: $SQUADS_ROOT"
   say "doctor: squads under $SQUADS_ROOT"
 
+  # Fail LOUD if docker is unreachable. doctor's whole job is to see the fleet;
+  # if `docker info` is denied/down (e.g. an admin socket-proxy missing the
+  # /info allow), every container/health probe below silently degrades to WARN
+  # and doctor would otherwise still print "all checks passed" — a false
+  # all-clear. Record a real FAIL so the operator is never told a blind doctor
+  # passed. (Off-VM use with no docker at all still surfaces honestly here.)
+  if have_docker; then
+    doctor_report ok "docker daemon reachable"
+  else
+    doctor_report fail "docker daemon UNREACHABLE (\`docker info\` failed) — doctor cannot see the fleet; checks below are blind. Fix the daemon/socket-proxy (admin proxy must allow GET /info) before trusting this report."
+  fi
+
   # F1: a snippet on disk is NOT proof it routes — F3 taught us the import
   # glob can silently expand to nothing. Fetch the RUNNING config once from
   # the caddy admin API; each squad below checks its host matcher is in it.
@@ -771,6 +844,27 @@ cmd_doctor() {
     done
   else
     doctor_report warn "docker unavailable — container checks skipped"
+  fi
+
+  # Platform-ADMIN caddy route (review suggestion #1): the loop above only checks
+  # dash.<slug>.localhost for entries under /srv/squads/* — it NEVER covers the
+  # admin, which lives at /srv/platform-admin with route admin.localhost wired via
+  # an EXPLICIT `import /srv/platform-admin/caddy.snippet` (plan §5.3/§7). Reuse
+  # the same caddy admin-API poll (caddy_cfg, fetched once above) so FIX #4's
+  # "LOADED" guarantee actually covers the admin route too.
+  local admin_snippet="${SQUADCTL_ADMIN_SNIPPET:-/srv/platform-admin/caddy.snippet}"
+  if [ -f "$admin_snippet" ]; then
+    if [ "$caddy_active" -eq 1 ]; then
+      if [ -z "$caddy_cfg" ]; then
+        doctor_report warn "caddy admin API (127.0.0.1:2019) unreachable — cannot verify admin.localhost is loaded"
+      elif printf '%s' "$caddy_cfg" | grep -qF "admin.localhost"; then
+        doctor_report ok "admin caddy.snippet LOADED (admin.localhost present in running caddy config)"
+      else
+        doctor_report fail "admin caddy.snippet on disk but NOT in the running caddy config — ensure 'import $admin_snippet' is in the host Caddyfile, then: sudo chgrp caddy $admin_snippet && sudo systemctl reload caddy"
+      fi
+    else
+      doctor_report warn "admin caddy.snippet present but no active caddy service — loaded-state check skipped"
+    fi
   fi
 
   # disk headroom on the squads root
@@ -871,6 +965,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --no-input)    NO_INPUT=1 ;;
     --no-up)       NO_UP=1 ;;
+    --no-build)    NO_BUILD=1 ;;
     --keep-data)   KEEP_DATA=1 ;;
     --force)       FORCE=1 ;;
     --all)         ALL=1 ;;

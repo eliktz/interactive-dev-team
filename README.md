@@ -98,6 +98,22 @@ squad, all per-squad state (env, config, personas, bus, secrets) in
 - **Migrating a pre-multi-tenancy install:**
   [deploy/MIGRATION_GONORTH.md](deploy/MIGRATION_GONORTH.md)
 
+## Admin console
+
+For operators running several squads, the **admin console** is a single browser tab — same
+look and feel as a squad war-room — that drives one Claude admin agent with full `squadctl` +
+Docker reach. From one screen you can **create a new company** (`squadctl new`) and
+**debug/fix any squad** (`doctor`/`logs`/`status`/`apply`/`respawn`/`upgrade`), while the
+load-bearing containers and every live squad stay untouched.
+
+It runs as its own dedicated `platform-admin` compose project (admin agent + admin-warroom2 +
+admin-docker-proxy), served at `http://admin.localhost:8800` over the existing SSH tunnel.
+The trust boundary is **honest**: the admin is host-equivalent (root on the VM); the
+socket-proxy is defense-in-depth, not a sandbox; containment is loopback + basic-auth + the
+single tunnel, with secrets only in the out-of-repo `/srv/platform-admin/.env` (0600).
+
+Full design, bring-up, and security posture: [docs/ADMIN_CONSOLE.md](docs/ADMIN_CONSOLE.md).
+
 ## What You Get
 
 | Service | Port | Description |
