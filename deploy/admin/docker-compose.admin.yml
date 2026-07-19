@@ -72,6 +72,14 @@ services:
       ADMIN_TELEGRAM_TOKEN: ${ADMIN_TELEGRAM_TOKEN:-}
       OPERATOR_TELEGRAM_ID: ${OPERATOR_TELEGRAM_ID:-}
       TZ: ${TZ:-UTC}
+
+      CLAUDE_CODE_ENABLE_TELEMETRY: "1"
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4317
+      OTEL_SERVICE_NAME: admin-captain
+
     # FIX (Defect #4, env-leak): the agent service deliberately does NOT load
     # /srv/platform-admin/.env via `env_file`. That file carries the dashboard's
     # SQUAD_DASH_PORT=7900 + WARROOM2_* (=Admin's values), which are admin-warroom2's

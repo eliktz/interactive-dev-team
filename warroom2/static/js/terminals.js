@@ -77,6 +77,10 @@
     if (window.FitAddon && window.FitAddon.FitAddon) {
       fit = new window.FitAddon.FitAddon();
       term.loadAddon(fit);
+      /* CLIPBOARD-ADDON-FIX (CAP-13): index.html loads vendor/addon-clipboard.js
+         but nothing attached it, so tmux's OSC 52 copies never reached the
+         browser clipboard. */
+      try { term.loadAddon(new ClipboardAddon.ClipboardAddon()); } catch (e) {}
     }
 
     term.open(hostDiv);
