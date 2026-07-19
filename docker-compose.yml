@@ -208,6 +208,7 @@ services:
           memory: ${PAPERCLIP_MEM:-1.25g}
 
   playwright:
+    profiles: ["playright"]
     image: mcr.microsoft.com/playwright/mcp
     # --allowed-hosts * fixes the 403 the war-room got behind the docker DNS
     # name; --output-dir keeps screenshots/downloads in a known tmpfs path.
