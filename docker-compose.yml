@@ -120,9 +120,6 @@ services:
       - ${SQUAD_HOME}/private:/workspace/private:ro
       # SSH key for deploying to Plesk (optional, mount if available)
       - ${DEPLOY_SSH_KEY_PATH:-/dev/null}:/home/claude/.ssh/deploy_key:ro
-    depends_on:
-      playwright:
-        condition: service_started
     restart: unless-stopped
     # Ceilings, not reservations — stop one squad's runaway Claude/Chromium
     # from OOM-killing the host (no swap on the VM). Override per squad in
