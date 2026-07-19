@@ -121,8 +121,6 @@ services:
       # SSH key for deploying to Plesk (optional, mount if available)
       - ${DEPLOY_SSH_KEY_PATH:-/dev/null}:/home/claude/.ssh/deploy_key:ro
     depends_on:
-      paperclip:
-        condition: service_healthy
       playwright:
         condition: service_started
     restart: unless-stopped
@@ -136,6 +134,7 @@ services:
           memory: ${WAR_ROOM_MEM:-2.5g}
 
   paperclip:
+    profiles: ["paperclip"]
     build:
       context: ${PAPERCLIP_SOURCE:-./paperclip}
       dockerfile: Dockerfile
