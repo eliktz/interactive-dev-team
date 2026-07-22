@@ -690,6 +690,8 @@ if [ -n "\$EXISTING" ] && [ "\$EXISTING" != "\$\$" ]; then
 fi
 cd "\$AGENT_DIR"
 ${state_dir_export}
+# CAP-14b: OTEL telemetry — armed only when /workspace/config/otel.env exists
+[ -f /workspace/config/otel.env ] && . /workspace/config/otel.env && export OTEL_SERVICE_NAME="claude-${id}"
 # Clear stale bot.pid: PIDs get reused after a container restart, and the bun
 # plugin startup kills whatever currently holds the old PID — which may be an
 # unrelated process (IMAGE_REBUILD_FIXES #1a). Also clear a poisoned needs-auth

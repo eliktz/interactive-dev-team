@@ -89,7 +89,7 @@ diff_records() {  # $1=remote_sha $2=local_sha -> added lines only
 tree_records() {  # $1=rev -> every line of every blob at rev
   local rev="$1" f
   git ls-tree -r --name-only "$rev" | while IFS= read -r f; do
-    git show "$rev:$f" 2>/dev/null \
+    git show "$rev:$f" 2>/dev/null | tr -d '\0' \
       | awk -v f="$f" '{ printf "%s:%d:%s\n", f, NR, $0 }'
   done
 }
@@ -215,8 +215,23 @@ run_pre_push() {
     [ "$local_sha" = "$ZERO_SHA" ] && continue  # ref deletion — nothing to scan
     if [ "$remote_sha" = "$ZERO_SHA" ] \
        || ! git cat-file -e "$remote_sha" 2>/dev/null; then
-      echo "[secret-scan] new ref $local_ref — scanning whole tree at ${local_sha:0:12}" >&2
-      records="$(tree_records "$local_sha")"
+      # MERGE-BASE-FIX: a new branch almost always builds on history the remote already
+      # has — scan only what's new vs the merge-base with the default branch. Whole-tree
+      # (2 procs/file, hangs on big repos) only for a true rootless push.
+      base=""
+      for ref in origin/main origin/master; do
+        base="$(git merge-base "$local_sha" "$ref" 2>/dev/null)" && [ -n "$base" ] && break
+      done
+      if [ -n "$base" ] && [ "$base" != "$local_sha" ]; then
+        echo "[secret-scan] new ref $local_ref — scanning ${base:0:12}..${local_sha:0:12} (vs merge-base)" >&2
+        records="$(diff_records "$base" "$local_sha")"
+      elif [ -n "$base" ]; then
+        echo "[secret-scan] new ref $local_ref — no new commits vs default branch, clean" >&2
+        records=""
+      else
+        echo "[secret-scan] new ref $local_ref — no merge-base found, scanning whole tree at ${local_sha:0:12}" >&2
+        records="$(tree_records "$local_sha")"
+      fi
     else
       echo "[secret-scan] scanning ${remote_sha:0:12}..${local_sha:0:12} ($local_ref)" >&2
       records="$(diff_records "$remote_sha" "$local_sha")"
@@ -248,7 +263,9 @@ run_scan_tree() {
 case "${1:-}" in
   --self-test)  self_test ;;
   --scan-tree)  shift; run_scan_tree "${1:-HEAD}" ;;
-  '')           run_pre_push ;;
-  *)            echo "usage: $0 [--self-test | --scan-tree [rev]]  (no args = pre-push hook mode)" >&2
+  --help|-h)    echo "usage: $0 [--self-test | --scan-tree [rev]]  (hook mode: git passes <remote> <url>)" >&2
                 exit 2 ;;
+  # git invokes pre-push hooks WITH ARGS ("<remote> <url>") — anything that isn't a
+  # flag IS hook mode (the old catch-all printed usage and exit 2, blocking every push).
+  *)            run_pre_push ;;
 esac

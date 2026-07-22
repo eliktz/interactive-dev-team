@@ -53,6 +53,11 @@
       self._bytesSinceAck = 0;
       self._startHeartbeat();
       self.onOpen();
+      // ENTER-LOSS FIX: deliver input typed while the socket was reconnecting
+      if (self._pendingInput && self._pendingInput.length) {
+        var q = self._pendingInput.splice(0, self._pendingInput.length);
+        for (var i = 0; i < q.length; i++) self._safeSend(q[i]);
+      }
     };
 
     this._ws.onmessage = function (ev) {
@@ -128,6 +133,12 @@
   };
 
   WSClient.prototype.send = function (obj) {
+    // ENTER-LOSS FIX: never drop user INPUT during reconnect — queue and flush on open
+    if ((!this._ws || this._ws.readyState !== WebSocket.OPEN) && obj && obj.type === 'input') {
+      if (!this._pendingInput) this._pendingInput = [];
+      if (this._pendingInput.length < 200) this._pendingInput.push(obj);
+      return true;
+    }
     return this._safeSend(obj);
   };
 
