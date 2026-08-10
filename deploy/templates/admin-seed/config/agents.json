@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "admin",
+      "name": "Platform Admin",
+      "label": "Platform Admin",
+      "attach": "tmux",
+      "window": 1,
+      "persona_dir": "admin",
+      "model_env": "ADMIN_MODEL",
+      "model_default": "sonnet",
+      "color": "#f0b429"
+    }
+  ]
+}

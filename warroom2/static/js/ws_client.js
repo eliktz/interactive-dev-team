@@ -3,6 +3,13 @@
   'use strict';
 
   var ACK_THRESHOLD_BYTES = 4096;
+  // Liveness heartbeat: sent on an interval REGARDLESS of focus/output so the
+  // server can tell an alive-but-quiet tab (e.g. a paused/backgrounded agent)
+  // from a half-open WS left by a tunnel drop. The server's periodic sweep
+  // reaps tmux client-sessions whose heartbeat has gone stale — this is what
+  // stops orphaned `<base>-cli-*` clients from accumulating and corrupting
+  // window geometry between warroom2 restarts.
+  var HEARTBEAT_MS = 20000;
 
   function jitter(ms) { return ms * (0.7 + Math.random() * 0.6); }
 
@@ -22,6 +29,7 @@
     this._closedByUser = false;
     this._bytesSinceAck = 0;
     this._seq = 0;
+    this._hbTimer = null;
   }
 
   WSClient.prototype.connect = function () {
@@ -43,6 +51,7 @@
     this._ws.onopen = function () {
       self._backoff = 1000;
       self._bytesSinceAck = 0;
+      self._startHeartbeat();
       self.onOpen();
     };
 
@@ -76,9 +85,25 @@
     };
 
     this._ws.onclose = function (ev) {
+      self._stopHeartbeat();
       self.onClose(ev);
       if (!self._closedByUser) self._scheduleReconnect();
     };
+  };
+
+  WSClient.prototype._startHeartbeat = function () {
+    var self = this;
+    this._stopHeartbeat();
+    this._hbTimer = setInterval(function () {
+      self._safeSend({ type: 'hb' });
+    }, HEARTBEAT_MS);
+  };
+
+  WSClient.prototype._stopHeartbeat = function () {
+    if (this._hbTimer) {
+      clearInterval(this._hbTimer);
+      this._hbTimer = null;
+    }
   };
 
   WSClient.prototype._scheduleReconnect = function () {
@@ -108,6 +133,7 @@
 
   WSClient.prototype.close = function () {
     this._closedByUser = true;
+    this._stopHeartbeat();
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;

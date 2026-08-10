@@ -14,7 +14,17 @@ set -euo pipefail
 #
 # Usage:
 #   scripts/setup-company.sh --slug <slug> --name "<display name>" \
-#       [--env-file <path>] [--agents-json <path>] [--paperclip-url <url>]
+#       [--env-file <path>] [--agents-json <path>] [--paperclip-url <url>] \
+#       [--paperclip-container <name>]
+#
+# Squads run paperclip in `authenticated` mode (the squad.env.template default,
+# matching live squads gonorth/probe and the only mode compatible with the
+# HOST=0.0.0.0 + published-loopback-port container topology). A fresh
+# authenticated instance has no instance admin, so this script first bootstraps
+# one from inside the squad (bootstrap_ceo invite via paperclip's own DB module
+# + sign-up + accept) before registering the company — making `squadctl new`
+# fully self-contained. The step is idempotent and a no-op for already-bootstrapped
+# or local_trusted instances.
 #
 #   --slug          squad slug (^[a-z][a-z0-9-]{1,22}$)
 #   --name          company display name in Paperclip
@@ -30,6 +40,10 @@ set -euo pipefail
 #                   (no hardcoded multi-agent roster).
 #   --paperclip-url override the Paperclip base URL.
 #                   Default: http://127.0.0.1:${SQUAD_PAPERCLIP_PORT:-3100}
+#   --paperclip-container
+#                   container running this squad's paperclip, used only to seed
+#                   the first instance_admin in authenticated mode.
+#                   Default: <slug>-paperclip-1 (compose-derived).
 # =============================================================================
 
 SLUG=""
@@ -38,6 +52,10 @@ ENV_FILE=""
 AGENTS_JSON=""
 PAPERCLIP_URL="${PAPERCLIP_URL:-}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
+# Container running this squad's paperclip (used only in authenticated mode to
+# seed the first instance_admin via paperclip's own DB module). Defaults to the
+# compose-derived name <slug>-paperclip-1; override with --paperclip-container.
+PAPERCLIP_CONTAINER="${PAPERCLIP_CONTAINER:-}"
 
 info() { echo "[setup-company] $*"; }
 warn() { echo "[setup-company] WARNING: $*" >&2; }
@@ -57,6 +75,7 @@ while [ $# -gt 0 ]; do
     --env-file)      ENV_FILE="${2:?--env-file needs a value}"; shift 2 ;;
     --agents-json)   AGENTS_JSON="${2:?--agents-json needs a value}"; shift 2 ;;
     --paperclip-url) PAPERCLIP_URL="${2:?--paperclip-url needs a value}"; shift 2 ;;
+    --paperclip-container) PAPERCLIP_CONTAINER="${2:?--paperclip-container needs a value}"; shift 2 ;;
     --help|-h)       usage; exit 0 ;;
     *)               die "unknown option: $1 (see --help)" ;;
   esac
@@ -95,16 +114,34 @@ info "roster: ${AGENTS_JSON:-<none — generic single-captain default>}"
 # ---------------------------------------------------------------------------
 # Wait for Paperclip health
 # ---------------------------------------------------------------------------
+# Session cookie jar for authenticated mode. Empty in local_trusted (where the
+# board principal is implicit). Populated by bootstrap_authenticated_admin().
+SESSION_JAR=""
+
 api() {
   local method="$1" path="$2"
   shift 2
   # Origin==Host is REQUIRED (E2E finding F6): paperclip's board-mutation
   # guard rejects mutations whose Origin header doesn't match the Host —
-  # sending it on every call keeps this script working against BOTH
-  # local_trusted (squad default) and authenticated paperclip instances.
-  curl -sf -X "$method" -H "Content-Type: application/json" \
-    -H "Origin: ${PAPERCLIP_URL}" \
-    "${PAPERCLIP_URL}/api${path}" "$@"
+  # sending it on every call keeps this script working against BOTH the
+  # authenticated squad default and any legacy local_trusted instance.
+  #
+  # In authenticated mode the instance admin's better-auth session cookie
+  # (SESSION_JAR, set by bootstrap_authenticated_admin) is replayed on every
+  # call so company/agent mutations carry instance_admin authority. In
+  # local_trusted mode SESSION_JAR is empty and the implicit local board
+  # principal authorizes the calls — so this one helper works for both modes.
+  # bash 3.2 (macOS) errors on "${empty[@]}" under set -u, so branch instead of
+  # expanding a possibly-empty array.
+  if [ -n "$SESSION_JAR" ]; then
+    curl -sf -X "$method" -H "Content-Type: application/json" \
+      -H "Origin: ${PAPERCLIP_URL}" -b "$SESSION_JAR" \
+      "${PAPERCLIP_URL}/api${path}" "$@"
+  else
+    curl -sf -X "$method" -H "Content-Type: application/json" \
+      -H "Origin: ${PAPERCLIP_URL}" \
+      "${PAPERCLIP_URL}/api${path}" "$@"
+  fi
 }
 
 elapsed=0
@@ -114,6 +151,136 @@ until curl -sf "${PAPERCLIP_URL}/api/health" >/dev/null 2>&1; do
   elapsed=$((elapsed + 2))
 done
 info "Paperclip healthy at ${PAPERCLIP_URL}"
+
+# ---------------------------------------------------------------------------
+# Authenticated-mode bootstrap (idempotent, no-op for local_trusted)
+#
+# Squads default to PAPERCLIP_DEPLOYMENT_MODE=authenticated (squad.env.template)
+# because that is the ONLY mode compatible with the container topology: compose
+# binds the paperclip process to HOST=0.0.0.0 so the published
+# 127.0.0.1:<port>:3100 forward can reach it, and paperclip REJECTS local_trusted
+# on a non-loopback bind. Authenticated mode starts with ZERO instance admins
+# (health: bootstrapStatus=bootstrap_pending) and 403s every unauthenticated
+# company/agent mutation, so squadctl new could not register the company.
+#
+# This step makes `squadctl new` fully self-contained: it seeds the first
+# instance_admin entirely from inside the squad, using ONLY supported surfaces:
+#   1. create a one-time bootstrap_ceo invite via paperclip's OWN @paperclipai/db
+#      module run inside the paperclip container (same insert the bundled
+#      `paperclipai auth-bootstrap-ceo` CLI performs — no admin needed, and no
+#      psql/extra tooling, which the image does not ship);
+#   2. sign up an admin user over HTTP (POST /api/auth/sign-up/email) and keep
+#      its better-auth session cookie;
+#   3. accept the invite (POST /api/invites/<token>/accept {requestType:human}),
+#      which promotes that user to instance_admin (bootstrapStatus -> ready).
+# Thereafter SESSION_JAR carries instance_admin authority for company/agent
+# creation below. Idempotent: skipped when health already reports ready.
+#
+# Credentials are GENERATED locally and recorded in the squad's private ops file
+# (0600, out-of-tree) — never echoed, never passed on argv, never committed.
+# ---------------------------------------------------------------------------
+bootstrap_authenticated_admin() {
+  local health bootstrap_status
+  health="$(curl -sf "${PAPERCLIP_URL}/api/health" 2>/dev/null || echo '{}')"
+  bootstrap_status="$(printf '%s' "$health" | python3 -c "
+import sys, json
+try: print(json.load(sys.stdin).get('bootstrapStatus',''))
+except Exception: print('')
+" 2>/dev/null || echo "")"
+
+  # local_trusted reports no bootstrapStatus / 'ready'; authenticated-and-already
+  # -bootstrapped reports 'ready'. Only 'bootstrap_pending' needs seeding.
+  if [ "$bootstrap_status" != "bootstrap_pending" ]; then
+    info "no admin bootstrap needed (bootstrapStatus=${bootstrap_status:-n/a})"
+    return 0
+  fi
+
+  info "authenticated paperclip has no instance admin yet — bootstrapping one"
+  local container="${PAPERCLIP_CONTAINER:-${SLUG}-paperclip-1}"
+  command -v docker >/dev/null 2>&1 || die "docker is required to bootstrap the authenticated paperclip admin (container ${container})"
+  docker inspect "$container" >/dev/null 2>&1 \
+    || die "paperclip container '${container}' not found (override with --paperclip-container)"
+
+  # Step 1: create a bootstrap_ceo invite via paperclip's own DB module. The
+  # script is dropped INTO the server workspace so the workspace import
+  # (@paperclipai/db -> packages/db) resolves, then removed.
+  local node_script invite_token
+  node_script='import { createHash, randomBytes } from "node:crypto";
+import { createDb, invites, instanceUserRoles } from "@paperclipai/db";
+import { and, eq, gt, isNull } from "drizzle-orm";
+const port = process.env.PAPERCLIP_EMBEDDED_PG_PORT || "54329";
+const url = process.env.DATABASE_URL || `postgres://paperclip:paperclip@127.0.0.1:${port}/paperclip`;
+const db = createDb(url);
+const now = new Date();
+await db.update(invites).set({ revokedAt: now, updatedAt: now }).where(and(eq(invites.inviteType,"bootstrap_ceo"), isNull(invites.revokedAt), isNull(invites.acceptedAt), gt(invites.expiresAt, now)));
+const token = "pcp_bootstrap_" + randomBytes(24).toString("hex");
+await db.insert(invites).values({ inviteType:"bootstrap_ceo", tokenHash: createHash("sha256").update(token).digest("hex"), allowedJoinTypes:"human", expiresAt: new Date(Date.now()+3600*1000), invitedByUserId:"system" });
+console.log("INVITE_TOKEN=" + token);
+process.exit(0);'
+
+  local marker="/app/server/.squadctl-bootstrap-$$.mjs"
+  if ! printf '%s' "$node_script" | docker exec -i "$container" sh -c "cat > '$marker'"; then
+    die "failed to stage bootstrap script into ${container}"
+  fi
+  local raw
+  raw="$(docker exec -w /app/server "$container" \
+        node --import /app/server/node_modules/tsx/dist/loader.mjs "$marker" 2>&1)" || {
+    docker exec "$container" rm -f "$marker" >/dev/null 2>&1 || true
+    die "bootstrap_ceo invite creation failed: ${raw}"
+  }
+  docker exec "$container" rm -f "$marker" >/dev/null 2>&1 || true
+  invite_token="$(printf '%s\n' "$raw" | grep '^INVITE_TOKEN=' | tail -1 | cut -d= -f2)"
+  [ -n "$invite_token" ] || die "could not obtain bootstrap invite token. Output: ${raw}"
+  info "bootstrap_ceo invite created"
+
+  # Step 2: sign up the instance admin and keep its session cookie.
+  SESSION_JAR="$(mktemp)"
+  # shellcheck disable=SC2064
+  trap "rm -f '$SESSION_JAR'" EXIT
+  local admin_email admin_pass admin_name
+  admin_email="admin@${SLUG}.localhost"
+  admin_pass="$(openssl rand -base64 18 | tr -d '/+=' )Aa1!"
+  admin_name="${SLUG} Admin"
+  local signup_body
+  signup_body="$(SC_E="$admin_email" SC_P="$admin_pass" SC_N="$admin_name" python3 -c "
+import json, os
+print(json.dumps({'email':os.environ['SC_E'],'password':os.environ['SC_P'],'name':os.environ['SC_N']}))")"
+  curl -sf -c "$SESSION_JAR" -X POST -H "Content-Type: application/json" \
+    -H "Origin: ${PAPERCLIP_URL}" -d "$signup_body" \
+    "${PAPERCLIP_URL}/api/auth/sign-up/email" >/dev/null \
+    || die "admin sign-up failed at ${PAPERCLIP_URL}/api/auth/sign-up/email"
+  info "instance admin user signed up: ${admin_email}"
+
+  # Step 3: accept the bootstrap invite -> promotes the signed-in user to admin.
+  api POST "/invites/${invite_token}/accept" -d '{"requestType":"human"}' >/dev/null \
+    || die "bootstrap invite acceptance failed"
+
+  # Confirm the promotion took effect.
+  local after
+  after="$(curl -sf "${PAPERCLIP_URL}/api/health" 2>/dev/null | python3 -c "
+import sys, json
+try: print(json.load(sys.stdin).get('bootstrapStatus',''))
+except Exception: print('')" 2>/dev/null || echo "")"
+  [ "$after" = "ready" ] || die "admin bootstrap did not reach 'ready' (got '${after}')"
+  info "instance admin bootstrapped — paperclip is ready for company registration"
+
+  # Record the generated admin credential in the squad's private ops file (0600,
+  # out-of-tree) so an operator can sign in to the paperclip UI later.
+  if [ -n "$SQUAD_HOME_VAL" ] && [ -d "${SQUAD_HOME_VAL}/private" ]; then
+    local ops="${SQUAD_HOME_VAL}/private/paperclip-admin.env"
+    {
+      printf '# Paperclip instance admin (generated by setup-company.sh — keep private).\n'
+      printf 'PAPERCLIP_ADMIN_EMAIL=%s\n' "$admin_email"
+      printf 'PAPERCLIP_ADMIN_PASSWORD=%s\n' "$admin_pass"
+    } > "$ops" 2>/dev/null && chmod 600 "$ops" 2>/dev/null \
+      && info "admin credential recorded in ${ops} (0600)" \
+      || warn "could not write admin credential to ${ops}"
+  else
+    info "admin credential (record it safely): email=${admin_email}"
+  fi
+}
+
+bootstrap_authenticated_admin
 
 # ---------------------------------------------------------------------------
 # Company: look up by name/slug, create when missing (idempotent)

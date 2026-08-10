@@ -72,3 +72,30 @@ with the repo cfg mounted. The verdict table above PREDATES that stage (it was
 recorded with stock Tecnativa ACLs only) — **re-run the gate before enabling
 the `socket-proxy` profile for any squad** so the recorded verdict covers the
 ACL stage too.
+
+## Addendum (admin console) — admin-ACL stage added (PENDING empirical run)
+
+`scripts/test-socket-proxy-exec.sh` now also includes a fourth **admin-ACL
+stage** that exercises the BROAD platform-admin ACL
+(`deploy/docker-proxy/haproxy.admin.cfg`, no per-name regex — the
+`admin-docker-proxy` policy). It asserts the destructive surface the squad
+stage does NOT, because `squadctl destroy`/`apply` run `compose down -v`:
+
+- **DENY:** `POST /build` → 403 (builds go OUT-OF-BAND via
+  `deploy/admin/bin/admin-host-build.sh`; the admin runs `SQUADCTL_NO_BUILD=1`),
+  `POST /swarm/init` → 403, `POST /secrets/create` → 403 (host-takeover surface
+  stays hard-denied).
+- **ALLOW + DELETE round-trip (the `compose down -v` path):**
+  container create → DELETE, network create → DELETE, volume create → DELETE
+  each return 2xx for BOTH the create and the DELETE — `create=201` alone is
+  insufficient (review suggestion #5, plan §2.2).
+
+The verdict table above PREDATES this stage and was recorded for the squad
+proxy only. The admin-ACL stage's verdict is **PENDING an empirical run on the
+VM** (or any host with the Tecnativa image + local docker): run
+`scripts/test-socket-proxy-exec.sh` and the regenerated table will carry the
+`Admin-ACL stage` rows (`build=403`, `swarm=403`, `secrets=403`,
+`ctr/net/vol = 2xx/2xx`). PASS is empirical, not contractual — re-run after a
+docker-engine or proxy-image upgrade. A missing `haproxy.admin.cfg` makes the
+stage SKIP (it does not fail the overall run); the cfg is present in this repo,
+so a real run will execute it.

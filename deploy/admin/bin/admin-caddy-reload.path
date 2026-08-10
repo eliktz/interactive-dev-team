@@ -1,0 +1,35 @@
+# =============================================================================
+# admin-caddy-reload.path — host systemd PATH unit (plan §7 option a, FIX #4)
+#
+# Reloads caddy whenever a caddy.snippet changes under /srv (squads OR the admin
+# instance dir), so a `squadctl new`/`apply`/`destroy` rendering a snippet from
+# INSIDE a container actually takes effect on the HOST. The admin container has
+# no host systemd and cannot `systemctl reload caddy` itself (plan §7); this
+# host-side trigger closes that gap and makes the host reload UNATTENDED.
+#
+# INSTALL (on the VM, as root — see admin-caddy-reload.service for the rest):
+#   sudo cp deploy/admin/bin/admin-caddy-reload.path    /etc/systemd/system/
+#   sudo cp deploy/admin/bin/admin-caddy-reload.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now admin-caddy-reload.path
+#
+# PathChanged fires on close-after-write to the named files; PathModified +
+# directory watches catch the squad case (squadctl writes /srv/squads/<slug>/
+# caddy.snippet for arbitrary <slug>, so we watch the /srv/squads directory tree
+# and the explicit admin snippet path).
+# =============================================================================
+[Unit]
+Description=Reload caddy when a /srv caddy.snippet changes (squads + platform-admin)
+Documentation=file:docs/ADMIN_CONSOLE.md
+
+[Path]
+# Admin's own explicit snippet (plan §5.3 — NOT under /srv/squads).
+PathChanged=/srv/platform-admin/caddy.snippet
+PathModified=/srv/platform-admin/caddy.snippet
+# Squad snippets live at /srv/squads/<slug>/caddy.snippet for arbitrary slug;
+# watch the tree so any squad render/destroy triggers a reload too.
+PathModified=/srv/squads
+Unit=admin-caddy-reload.service
+
+[Install]
+WantedBy=multi-user.target

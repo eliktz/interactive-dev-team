@@ -131,10 +131,60 @@ tunnel line. No-Caddy fallback: tunnel the raw squad ports directly, e.g.
 `ssh -L 7801:127.0.0.1:7801 <user>@<vm-host>` → `http://localhost:7801` (ports are in
 the squad `.env` and printed by `./squadctl url`).
 
-## 7. More
+## 7. Admin console (optional, cross-squad)
+
+The **admin console** is a dedicated `platform-admin` compose project (admin agent +
+admin-warroom2 + admin-docker-proxy) giving one operator a single tab to create companies and
+debug/fix any squad. Full design + security posture: [docs/ADMIN_CONSOLE.md](docs/ADMIN_CONSOLE.md).
+Bring-up, in order (all host-side; the admin never builds):
+
+```bash
+# 1. Build the admin image OUT-OF-BAND on the host (the agent runs SQUADCTL_NO_BUILD=1):
+cd ~/interactive-dev-team && deploy/admin/bin/admin-host-build.sh
+
+# 2. Render the OUT-OF-REPO env file (0600, NEVER committed — like /srv/squads/<slug>/.env):
+sudo mkdir -p /srv/platform-admin && sudo chown "$USER":caddy /srv/platform-admin
+sudo chmod 0750 /srv/platform-admin
+install -m 0600 deploy/admin/admin.env.template /srv/platform-admin/.env
+$EDITOR /srv/platform-admin/.env          # fill WARROOM2_BASIC_AUTH_PASS (openssl rand -hex 16), etc.
+
+# 3. Seed config + persona out-of-repo from the sanitized seeds:
+mkdir -p /srv/platform-admin/{config,agents/admin,bus}
+cp deploy/templates/admin-seed/config/agents.json /srv/platform-admin/config/
+cp deploy/templates/admin-seed/admin/*.md         /srv/platform-admin/agents/admin/
+
+# 4. Add the Caddyfile import (SEPARATE from the squad glob) + copy the snippet out-of-repo:
+install -m 0640 -g caddy deploy/templates/admin.caddy.snippet /srv/platform-admin/caddy.snippet
+#   then add `import /srv/platform-admin/caddy.snippet` inside the http://:8800 site block, and:
+sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+
+# 5. Install the host caddy-reload path-unit (so rendered snippets become live routes):
+sudo cp deploy/admin/bin/admin-caddy-reload.{path,service} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now admin-caddy-reload.path
+
+# 6. Bring up the admin project — own project, out-of-repo env, NEVER --remove-orphans:
+docker compose -p platform-admin --env-file /srv/platform-admin/.env \
+  -f deploy/admin/docker-compose.admin.yml up -d --no-deps
+```
+
+Then open `http://admin.localhost:8800` over the existing tunnel and complete the claude.ai
+`/login` once in the tab.
+
+> **RAM HARD GATE (swapless VM).** The admin project adds ~1.2 GiB (agent 768m + warroom2 384m
+> + proxy 64m). **Before standing up a 3rd squad alongside the admin, run `free -m` on the VM
+> and confirm headroom** — there is no swap, so the failure mode is the OOM-killer, not
+> slowness. Default to **max 2 squads + admin** until headroom is confirmed.
+
+> **Out-of-repo `.env`.** `/srv/platform-admin/.env` (0600, owner `<vm-user>:<vm-user>`) is the
+> single source of admin secrets and is **never committed** — exactly like each squad's
+> `/srv/squads/<slug>/.env`. The repo ships `deploy/admin/admin.env.template` with NAMES and
+> placeholders only.
+
+## 8. More
 
 - Operating N squads day-2 (upgrades, backups, capacity, hard warnings):
   [docs/MULTI_SQUAD.md](docs/MULTI_SQUAD.md)
+- The admin console (single-tab cross-squad admin): [docs/ADMIN_CONSOLE.md](docs/ADMIN_CONSOLE.md)
 - Migrating a pre-multi-tenancy single-squad install:
   [deploy/MIGRATION_GONORTH.md](deploy/MIGRATION_GONORTH.md)
 - Telegram bot creation details: [docs/telegram-setup.md](docs/telegram-setup.md)

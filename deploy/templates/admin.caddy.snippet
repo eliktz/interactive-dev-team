@@ -1,0 +1,35 @@
+# =============================================================================
+# admin.caddy.snippet — platform-ADMIN host-matcher block (plan §5.3, FIX #4)
+#
+# This is the COMMITTED template. The operator copies it OUT-OF-REPO to
+#   /srv/platform-admin/caddy.snippet
+# (chgrp caddy, group-readable, so caddy's User=caddy can traverse + read it).
+#
+# WIRING — EXPLICIT import, NOT the squad glob (FIX #4):
+# Add ONE line to the host /etc/caddy/Caddyfile inside the loopback site block,
+# SEPARATE from the squad glob, so the load-bearing admin route never depends on
+# being smuggled into the squads tree:
+#
+#   http://:8800 {
+#       bind 127.0.0.1
+#       import /srv/squads/*/caddy.snippet        # squads (glob)
+#       import /srv/platform-admin/caddy.snippet  # admin (EXPLICIT — this file)
+#   }
+#
+# The admin owns its own import. It must NOT live under /srv/squads/* (that
+# coupled the admin route to squad-dir semantics + the `_admin` underscore hack
+# and let a squad bring-up affect it). Reload is host-side (plan §7 path-unit /
+# sudoers); a rendered snippet is NOT a live route until caddy reloads — verify
+# with `./squadctl doctor` (it polls the caddy admin API 127.0.0.1:2019 for the
+# `admin.localhost` route).
+#
+# admin.localhost resolves to loopback natively (RFC 6761) and the Host header
+# survives the existing SSH tunnel `-L 8800:127.0.0.1:8800` — NO new port-forward.
+# 7900 == ADMIN_DASH_PORT (/srv/platform-admin/.env). The matcher name has NO
+# hyphens (Caddy named matchers forbid hyphens; `admin` is already hyphen-free).
+# =============================================================================
+
+@dash_admin host admin.localhost
+handle @dash_admin {
+    reverse_proxy 127.0.0.1:7900
+}

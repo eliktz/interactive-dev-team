@@ -63,13 +63,33 @@ ENV PATH="/home/claude/.local/bin:/home/claude/.bun/bin:${PATH}"
 WORKDIR /workspace
 RUN chown claude:claude /workspace
 
+# --- waiting-notes dir (CAP-20): agents park durable wake-notes here; the
+# platform's 10-minute host sweep execs their check_cmd and wakes them ---
+RUN mkdir -p /workspace/.waiting && chown claude:claude /workspace/.waiting
+
 # --- copy agents and launch script ---
 COPY --chown=claude:claude agents/ /workspace/agents/
 COPY --chown=claude:claude launch.sh /workspace/launch.sh
 COPY --chown=claude:claude tmux.conf /home/claude/.tmux.conf
 COPY --chown=claude:claude config/ /workspace/config/
 COPY --chown=claude:claude scripts/ /workspace/scripts/
+# Proven live-container fixes baked as image payloads. launch.sh applies them at
+# boot because their runtime targets live on VOLUMES/bind-mounts, not image fs:
+#   telegram-server-patched.ts -> plugins cache (war-room-state volume)
+#   inbox-cleanup.js           -> run in place (7d telegram-inbox retention)
+#   emit-task-event.sh         -> /workspace/config (squad bind-mount)
+COPY --chown=claude:claude fixes/ /opt/warroom-fixes/
 RUN chmod +x /workspace/launch.sh /workspace/scripts/*.sh
+
+# --- Channel-plugin allowlist (CAP-12 slack recipe, piece 1 of 3) ---
+# Without this file claude logs "Channel notifications skipped" and silently
+# DROPS inbound channel events (outbound tools still work — deceptive). Lists
+# BOTH the official telegram plugin and the hardened tlk-local slack-channel
+# fork; the slack entry stays inert until that fork's marketplace is installed.
+# NEVER use --dangerously-load-development-channels instead (crash-loops claude).
+RUN mkdir -p /etc/claude-code && \
+    printf '{ "allowedChannelPlugins": [\n    { "marketplace": "claude-plugins-official", "plugin": "telegram" },\n    { "marketplace": "tlk-local", "plugin": "slack-channel" } ] }\n' \
+      > /etc/claude-code/managed-settings.json
 
 # --- switch to non-root user ---
 USER claude
@@ -91,6 +111,8 @@ RUN node -e ' \
   const config = { \
     hasCompletedOnboarding: true, \
     lastOnboardingVersion: "2.1.96", \
+    tipsHistory: { "new-user-warmup": 1, "plan-mode-for-complex-tasks": 2, "memory-command": 3, "theme-command": 4, "artifact-publish-plan": 6, "status-line": 6, "enter-to-steer-in-relatime": 6 }, \
+    remoteControlUpsellSeenCount: 3, \
     projects: { \
       "/workspace": proj(), \
       "/workspace/project": proj(), \

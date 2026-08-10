@@ -144,6 +144,30 @@ if [ -f "$TOKENS_ENV_FILE" ]; then
   echo "[war-room] Loaded agent tokens from $TOKENS_ENV_FILE"
 fi
 
+# --- Telegram inbox attachment cleanup, 7d retention (IMAGE_REBUILD_FIXES #5) ---
+# The telegram plugin downloads media into ~/.claude/channels/telegram-*/inbox and
+# never cleans up; months of attachments choke the poller on restart into a 100-200%
+# CPU busy-loop (gonorth incident 2026-07-11). Clean at boot + every 24h.
+INBOX_CLEANUP_JS="/opt/warroom-fixes/inbox-cleanup.js"
+if [ -f "$INBOX_CLEANUP_JS" ]; then
+  node "$INBOX_CLEANUP_JS" delete 2>/dev/null || true
+  ( while true; do sleep 86400; node "$INBOX_CLEANUP_JS" delete 2>/dev/null || true; done ) &
+  echo "[war-room] telegram inbox cleanup armed (boot + daily loop, 7d retention)"
+fi
+
+# --- Waiting-notes dir (CAP-20) + task-event emitter (CAP-19) ---
+# .waiting is pre-created in the image too, but /workspace/config is a squad
+# bind-mount, so the emitter is installed at boot when the squad lacks one
+# (copy-if-missing: a squad's customized emitter is never clobbered).
+mkdir -p /workspace/.waiting 2>/dev/null || true
+if [ ! -f /workspace/config/emit-task-event.sh ] && [ -f /opt/warroom-fixes/emit-task-event.sh ]; then
+  if cp /opt/warroom-fixes/emit-task-event.sh /workspace/config/emit-task-event.sh 2>/dev/null; then
+    echo "[war-room] emit-task-event.sh installed into /workspace/config"
+  else
+    echo "[war-room] WARNING: could not install emit-task-event.sh into /workspace/config"
+  fi
+fi
+
 # --- Resolve models and window labels ---
 # Resolved model = ${!model_env:-model_default}; agents without a model_env
 # just use model_default. Window label = "<label> (<resolved model>)".
@@ -365,8 +389,9 @@ mkdir -p "$HOME/.claude"
 MCP_CONFIG=$(node -e "
 const config = { mcpServers: {} };
 
-// Playwright browser (always available)
-config.mcpServers.playwright = { url: 'http://playwright:8931/mcp' };
+// Playwright is merged into ~/.claude.json further below — Claude Code does NOT
+// read mcpServers from settings.json, and HTTP servers need type:'http'
+// (IMAGE_REBUILD_FIXES #1b).
 
 // Bitbucket Cloud (token OR username/password)
 if (process.env.BITBUCKET_TOKEN || (process.env.BITBUCKET_USERNAME && process.env.BITBUCKET_PASSWORD)) {
@@ -426,6 +451,56 @@ else
   echo "[war-room] MCP settings.json created"
 fi
 
+# --- HTTP / credential-gated MCP servers -> ~/.claude.json (IMAGE_REBUILD_FIXES #1b) ---
+# Claude Code reads mcpServers ONLY from ~/.claude.json; HTTP endpoints also need
+# type:'http'. Merges are idempotent and preserve the file's OAuth/trust state.
+
+# Playwright MCP (browser automation, company-wide).
+if [ -f "$CLAUDE_JSON" ]; then
+  node -e "
+    const fs = require('fs');
+    const p = '$CLAUDE_JSON'; const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+    d.mcpServers = d.mcpServers || {};
+    d.mcpServers['playwright'] = { type: 'http', url: 'http://playwright:8931/mcp' };
+    fs.writeFileSync(p, JSON.stringify(d, null, 2));
+  " && echo '[war-room] Playwright MCP merged into .claude.json (company-wide)'
+fi
+
+# Mixpanel analytics MCP (read-only) -- OPTIONAL, credential-gated.
+# MIXPANEL_MCP_TOKEN = base64('serviceacct-username:secret'). Read the token DIRECTLY
+# from the file (verbatim), NOT the parsed env var: the IFS='=' token-file parser strips
+# the base64 '=' padding, which corrupts the token -> Mixpanel 401.
+if [ -f "$CLAUDE_JSON" ] && [ -f "$TOKENS_ENV_FILE" ] && grep -q '^MIXPANEL_MCP_TOKEN=' "$TOKENS_ENV_FILE"; then
+  node -e "
+    const fs = require('fs');
+    const env = fs.readFileSync('$TOKENS_ENV_FILE', 'utf8');
+    const tok = (env.match(/^MIXPANEL_MCP_TOKEN=(.+)\$/m) || [])[1];
+    const url = (env.match(/^MIXPANEL_MCP_URL=(.+)\$/m) || [])[1] || 'https://mcp.mixpanel.com/mcp';
+    if (tok) {
+      const p = '$CLAUDE_JSON'; const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+      d.mcpServers = d.mcpServers || {};
+      d.mcpServers.mixpanel = { type: 'http', url: url, headers: { Authorization: 'Bearer Basic ' + tok } };
+      fs.writeFileSync(p, JSON.stringify(d, null, 2));
+    }
+  " && echo "[war-room] Mixpanel MCP merged into .claude.json (token read verbatim from agent-tokens.env)"
+fi
+
+# Figma MCP (Framelink figma-developer-mcp) -- OPTIONAL, credential-gated, company-wide.
+# Figma Personal Access Token via env (NOT the --figma-api-key CLI arg: keeps it out of ps/argv).
+if [ -f "$CLAUDE_JSON" ] && [ -f "$TOKENS_ENV_FILE" ] && grep -q '^FIGMA_API_KEY=' "$TOKENS_ENV_FILE"; then
+  node -e "
+    const fs = require('fs');
+    const env = fs.readFileSync('$TOKENS_ENV_FILE', 'utf8');
+    const key = (env.match(/^FIGMA_API_KEY=(.+)\$/m) || [])[1];
+    if (key) {
+      const p = '$CLAUDE_JSON'; const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+      d.mcpServers = d.mcpServers || {};
+      d.mcpServers['figma'] = { command: 'npx', args: ['-y', 'figma-developer-mcp', '--stdio'], env: { FIGMA_API_KEY: key } };
+      fs.writeFileSync(p, JSON.stringify(d, null, 2));
+    }
+  " && echo '[war-room] Figma MCP merged into .claude.json (company-wide)'
+fi
+
 # --- Install Telegram plugin on first run ---
 if [ ! -d "$HOME/.claude/plugins/cache" ] || [ -z "$(ls -A "$HOME/.claude/plugins/cache" 2>/dev/null)" ]; then
   echo "[war-room] Installing Telegram plugin (first run, ~20s)..."
@@ -437,6 +512,29 @@ if [ ! -d "$HOME/.claude/plugins/cache" ] || [ -z "$(ls -A "$HOME/.claude/plugin
   fi
 else
   echo "[war-room] Telegram plugin already installed (cache present)"
+fi
+
+# --- Assert the canonical PATCHED telegram plugin server.ts (IMAGE_REBUILD_FIXES #0/#6/#7) ---
+# The plugin cache lives in the war-room-state VOLUME, not the image, so the canonical
+# build (sanitizeMarkdownV2 escaper, applyHebrewRTL incl. RTL-COLON-FIX + EN_RUN
+# lookbehind, PARAM-ALIAS-FIX, SEND-FALLBACK, STRIP-FALLBACK, GROUP-MESSAGE addressing
+# check, credential-gated voice STT via AZURE_TRANSCRIBE_ENDPOINT/KEY) is re-asserted
+# on every boot. VERSION-PIN: 0.0.6 — on any plugin version bump, re-base
+# fixes/telegram-server-patched.ts and update this path.
+PATCHED_TG="/opt/warroom-fixes/telegram-server-patched.ts"
+TG_SERVER="$HOME/.claude/plugins/cache/claude-plugins-official/telegram/0.0.6/server.ts"
+if [ -f "$PATCHED_TG" ]; then
+  if [ -f "$TG_SERVER" ]; then
+    if ! cmp -s "$PATCHED_TG" "$TG_SERVER"; then
+      cp "$TG_SERVER" "${TG_SERVER}.prev" 2>/dev/null || true
+      cp "$PATCHED_TG" "$TG_SERVER"
+      echo "[war-room] telegram plugin server.ts replaced with the canonical patched build"
+    else
+      echo "[war-room] telegram plugin server.ts already canonical"
+    fi
+  else
+    echo "[war-room] WARNING: telegram plugin 0.0.6 server.ts not found — patched build NOT applied (version bump? re-base /opt/warroom-fixes/telegram-server-patched.ts)"
+  fi
 fi
 
 # --- Set up Telegram state dirs and .env files for each agent ---
@@ -592,14 +690,56 @@ if [ -n "\$EXISTING" ] && [ "\$EXISTING" != "\$\$" ]; then
 fi
 cd "\$AGENT_DIR"
 ${state_dir_export}
+# Clear stale bot.pid: PIDs get reused after a container restart, and the bun
+# plugin startup kills whatever currently holds the old PID — which may be an
+# unrelated process (IMAGE_REBUILD_FIXES #1a). Also clear a poisoned needs-auth
+# cache so claude retries the telegram plugin instead of silently skipping it.
+if [ -n "\${TELEGRAM_STATE_DIR:-}" ]; then
+  rm -f "\${TELEGRAM_STATE_DIR}/bot.pid"
+fi
+node -e "var fs=require('fs'),p=process.env.HOME+'/.claude/mcp-needs-auth-cache.json';if(fs.existsSync(p)){var d=JSON.parse(fs.readFileSync(p,'utf8'));delete d['plugin:telegram:telegram'];fs.writeFileSync(p,JSON.stringify(d,null,2));}" 2>/dev/null || true
+# OTEL telemetry (CAP-14b): armed ONLY when the squad env provides a collector
+# endpoint (compose: OTEL_EXPORTER_OTLP_ENDPOINT=http://obs-otelcol:4317 + the
+# container joined to the obs-net docker network).
+if [ -n "\${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]; then
+  export CLAUDE_CODE_ENABLE_TELEMETRY=1
+  export OTEL_METRICS_EXPORTER="\${OTEL_METRICS_EXPORTER:-otlp}"
+  export OTEL_LOGS_EXPORTER="\${OTEL_LOGS_EXPORTER:-otlp}"
+  export OTEL_EXPORTER_OTLP_PROTOCOL="\${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}"
+  export OTEL_SERVICE_NAME="${SQUAD_SLUG:-squad}-${id}"
+  export OTEL_RESOURCE_ATTRIBUTES="agent.name=${id},squad=${SQUAD_SLUG:-squad}"
+fi
 # Resume the previous conversation on restart so operator instructions given
 # in-session survive respawns/crashes (transcripts persist in the war-room-state
 # volume). Self-healing: if claude exits within 15s (nothing to continue, or a
 # poisoned session crash-looping), drop --continue and start fresh next round.
 RESUME="--continue"
 while true; do
+  # Per-iteration hygiene: a respawn during an auth outage must not inherit a
+  # stale bot.pid or a poisoned needs-auth cache (claude would SKIP the plugin).
+  if [ -n "\${TELEGRAM_STATE_DIR:-}" ]; then rm -f "\${TELEGRAM_STATE_DIR}/bot.pid"; fi
+  node -e "var fs=require('fs'),p=process.env.HOME+'/.claude/mcp-needs-auth-cache.json';if(fs.existsSync(p)){var d=JSON.parse(fs.readFileSync(p,'utf8'));delete d['plugin:telegram:telegram'];fs.writeFileSync(p,JSON.stringify(d,null,2));}" 2>/dev/null || true
   echo "[${id}] Starting Claude Code (model: ${model})\${RESUME:+ [resuming previous session]}..."
   START_TS=\$(date +%s)
+  # Startup watchdog (short-lived, self-terminating): if 'claude --continue' stalls
+  # at the large-session resume menu, press Enter so the agent reaches its main
+  # loop unattended. Exits the instant the agent is up, the menu is dismissed, or
+  # ~120s elapse — leaves zero lingering processes.
+  if [ -n "\$RESUME" ] && [ -n "\$TMUX_PANE" ]; then
+    (
+      wd_pane="\$TMUX_PANE"
+      for _ in \$(seq 1 40); do
+        sleep 3
+        wd_snap=\$(tmux capture-pane -t "\$wd_pane" -p 2>/dev/null)
+        case "\$wd_snap" in
+          *"Resume from summary"*|*"Resume full session as-is"*)
+            tmux send-keys -t "\$wd_pane" Enter 2>/dev/null; break ;;
+          *"bypass permissions on"*)
+            break ;;
+        esac
+      done
+    ) &
+  fi
   claude \$RESUME --dangerously-skip-permissions --model ${model}${channels_flag}
   EXIT_CODE=\$?
   RAN_FOR=\$(( \$(date +%s) - START_TS ))
