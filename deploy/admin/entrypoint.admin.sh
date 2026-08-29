@@ -195,6 +195,13 @@ PY
   STATE_DIR_EXPORT="export TELEGRAM_STATE_DIR=${TG_STATE_DIR}"
   echo "[admin] Telegram channel enabled (DM-only; allow-list: ${OPERATOR_TELEGRAM_ID:-<empty>})"
 fi
+# Slack inbound: outbound tools work via enabledPlugins alone, but INBOUND events
+# are injected only for plugins in --channels — without this the captain is
+# silently deaf on Slack after every boot/recreate (29.8 incident).
+if [ -f "$HOME/.claude/channels/slack/.env" ] && [ -f "$HOME/.claude/channels/slack/ENABLED" ]; then
+  CHANNELS_FLAG="${CHANNELS_FLAG} --channels plugin:slack-channel@tlk-local"
+  echo "[admin] Slack channel enabled (inbound events wired)"
+fi
 
 # A small restart loop (mirrors launch.sh resilience): if claude exits, restart
 # it inside the same window rather than letting the tab go dead.

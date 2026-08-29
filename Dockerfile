@@ -19,7 +19,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
       rsync \
       openssh-client \
-    && rm -rf /var/lib/apt/lists/*
+      libreoffice-impress \
+      libreoffice-writer \
+      python3-pip \
+      poppler-utils \
+     && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --break-system-packages python-docx
+RUN npm install -g pptxgenjs
 
 # --- (ttyd web terminal removed 2026-06-10; UI is now the warroom2 container) ---
 
